@@ -11,6 +11,7 @@
 #include "../include/sane/config.h"
 #include "../backend/fs4000-scsi.h"
 #include "../backend/fs4000-wnaspi32.h"
+#include "../backend/fs4000-scsidefs.h"
 
 #include <stdint.h>
 #define WORD uint16_t
@@ -27,7 +28,7 @@
 #include "../include/sane/sanei_config.h"
 #include "../include/sane/sanei_usb.h"
 #include "../include/sane/sanei_debug.h"  /* DBG */
-
+#include <string.h>
 
 typedef struct  /* FS4K_FILM_STATUS */
 {
@@ -98,8 +99,10 @@ sanei_fs4000_usb_do_request          (DWORD          dwValue,
         BYTE            byRequest, byRequestType;
         BOOL            bRet;
         DWORD           cbRet, dwFunc;
+        int er;
+/*        
   printf("[sanei_fs4000_usb_do_request] %.8x %d %lu\n", dwValue, bInput?1:0, dwBufLen);
-
+*/
         /* bit 7        0 = output, 1 = input*/
         /* bits 6-5     2 = vendor special*/
         /* bits 4-0     0 = recipient is device*/
@@ -107,11 +110,11 @@ sanei_fs4000_usb_do_request          (DWORD          dwValue,
 
         /* loaded by driver according to ddk*/
   byRequest = (dwBufLen < 2) ? 0x0C : 0x04;     /* is this significant ?*/
-
+/*
   printf("[sanei_fs4000_usb_do_request] %.8x %d %lu Control: rt=%.8x, rq=%.8x val=%.8x blen=%lu\n", dwValue, bInput?1:0, dwBufLen, byRequestType, byRequest, dwValue, dwBufLen);
+*/
 
-
-    int er = sanei_usb_control_msg (
+    er = sanei_usb_control_msg (
                       g_saneUsbDn,              /* usb_dev_handle *dev,*/
                       byRequestType,            /* int requesttype,*/
                       byRequest,                /* int request,*/
@@ -126,13 +129,13 @@ sanei_fs4000_usb_do_request          (DWORD          dwValue,
    } else if       (er == SANE_STATUS_UNSUPPORTED) {
     printf("sanei_usb_control_msg UNSUPPORTED\n");
    } else {
-    printf("sanei_usb_control_msg OK\n");
+/*    printf("sanei_usb_control_msg OK %d\n", er);*/
    }
    return er != SANE_STATUS_GOOD;                 
 }
 
 static int
-sanei_usb_scsi_exec           (void           *cdb,
+sanei_fs4000_usb_scsi_exec           (void           *cdb,
                          unsigned int   cdb_length,
                          int            mode_and_dir,
                          void           *pdb,
@@ -149,7 +152,7 @@ sanei_usb_scsi_exec           (void           *cdb,
         BYTE            byStatPDB [4];          /* from C500 request*/
         BYTE            bySensPDB [14];         /* from 0300 request*/
 
-  printf("[sanei_usb_scsi_exec] %u %.8x {%u}\n", cdb_length, mode_and_dir, pdb_len);
+  printf("[sanei_fs4000_usb_scsi_exec] %u %.8x {%u}\n", cdb_length, mode_and_dir, pdb_len);
   if (!pdb_len)                         /* if no data, use dummy output*/
     {
     mode_and_dir &= ~SRB_DIR_IN;
@@ -232,12 +235,21 @@ sanei_usb_deinit              (void)
   return 0;
 }
 
+typedef struct  /* LUN_INQUIRY */
+{
+        uint8_t            reserved [8];
+        uint8_t            vendor   [8];
+        uint8_t            product  [16];
+        uint8_t            release  [4];
+}
+  LUN_INQUIRY;
+
 static SANE_Status sanei_fs4000_attach(SANE_String_Const devname)
 {
+    int er;
   printf("Found: %s\n", devname);
   /* Does this need a mutex? */
   if (g_saneUsbDn == -1) {
-    int er;
     printf("Opening: %s\n", devname);
     if (SANE_STATUS_GOOD != (er=sanei_usb_open( devname, &g_saneUsbDn))) {
       fprintf(stderr, "Failed to open! %d\n", er);
@@ -248,38 +260,56 @@ static SANE_Status sanei_fs4000_attach(SANE_String_Const devname)
     return SANE_STATUS_INVAL;
   }
   printf("dn=%d\n", g_saneUsbDn);
+
+  if (true) {
+  LUN_INQUIRY rLI;
+  uint8_t CDB [6];
+  memset( CDB, 0, sizeof(CDB));
+  CDB [0] = SCSI_INQUIRY;
+  CDB [4] = 36;
+  
+  if ( (er=sanei_fs4000_usb_scsi_exec( CDB, 6, SRB_DIR_IN, &rLI, sizeof (rLI))))
+    return er;
+
+  printf("vendor=%8s product=%16s release=%4s\n", rLI.vendor, rLI.product, rLI.release);
+
+  if (strncmp( "CANON ", (char*)rLI.vendor, 6) || strncmp( "IX-40015G ", (char*)rLI.product, 10))
+    return SANE_STATUS_INVAL;
+  }
   return SANE_STATUS_GOOD;
 }
 
 
+
 int main(int argc, char*argv[])
 { 
+
+  int iSpeed = 2;
+
         FS4K_FILM_STATUS        rFS         ;
         FS4K_LAMP_INFO          rLI         ;
         FS4K_SCAN_MODE_INFO     rSMI        ;
         FS4K_WINDOW_INFO        rWI         ;
 
-  fs4000_do_scsi    = sanei_usb_scsi_exec;
+  memset( &rFS, 0, sizeof(FS4K_FILM_STATUS));
+  memset( &rLI, 0, sizeof(FS4K_LAMP_INFO));
+  memset( &rSMI, 0, sizeof(FS4K_SCAN_MODE_INFO));
+  memset( &rWI, 0, sizeof(FS4K_WINDOW_INFO));
+
+  fs4000_do_scsi    = sanei_fs4000_usb_scsi_exec;
 
   /* usbinit */
   DBG_INIT();
   DBG (1, "sane_init: SANE Fs4000 backend version %d.%d.%d from %s\n",
        SANE_CURRENT_MAJOR, V_MINOR, 0, PACKAGE_STRING);
   sanei_usb_init ();
-/*
-  BYTE CDB [6];
-  Nullit (CDB);
-  CDB [0] = SCSI_INQUIRY;
-  CDB [4] = 36;
-  return sanei_usb_scsi_exec (CDB, 6, SRB_DIR_IN, pLI, sizeof (*pLI));
-    if ((0 == sanei_usb_unit_inquiry (&rLI))                  &&
-        (0 == memcmp (rLI.vendor, "CANON ", 6))         &&
-        (0 == memcmp (rLI.product, "IX-40015G ", 10))   )
-*/
-
+  
 /*
   sanei_usb_attach_matching_devices (config_line, attach_one);
 */
+
+  /* fs4k_BOJ maxtransfer=65536 */
+
 
   printf("searching...\n");
   g_saneUsbDn = -1;
@@ -301,19 +331,86 @@ int main(int argc, char*argv[])
   }
   printf("querying...\n");
 
-  fs4000_get_film_status_rec ((FS4000_GET_FILM_STATUS_DATA_IN_28*) &rFS);
-  fs4000_get_lamp_rec ((FS4000_GET_LAMP_DATA_IN*) &rLI);
-  fs4000_get_scan_mode_rec ((FS4000_GET_SCAN_MODE_DATA_IN_38*) &rSMI);
+      fs4000_cancel();
+
+  if (fs4000_get_film_status_rec ((FS4000_GET_FILM_STATUS_DATA_IN_28*) &rFS)) {
+    fprintf(stderr, "Error on get_film_status_rec\n");
+  }
+  else if (fs4000_get_lamp_rec ((FS4000_GET_LAMP_DATA_IN*) &rLI)) {
+    fprintf(stderr, "Error on get_lamp_rec\n");
+  }
+  else if (fs4000_get_scan_mode_rec ((FS4000_GET_SCAN_MODE_DATA_IN_38*) &rSMI)) {
+    fprintf(stderr, "Error on scan_mode_rec\n");
+  }
+  else {
+    memset(&rSMI.unknown1b [2], 0, 9);
+    rSMI.bySpeed      = iSpeed;
+    rSMI.bySampleMods = 0;
+    rSMI.unknown2a    = 0;
+    rSMI.byImageMods  = 0;
+    if (fs4000_put_scan_mode_rec ((FS4000_DEFINE_SCAN_MODE_DATA_OUT*) &rSMI))
+    {
+      fprintf(stderr, "Error on put_scan_mode_rec\n");
+    }  
+    else if (fs4000_get_window_rec ((FS4000_GET_WINDOW_DATA_IN*) &rWI))
+    {
+      fprintf(stderr, "Error on get_window_rec\n");
+    }  
+    else if (fs4000_put_window_rec ((FS4000_SET_WINDOW_DATA_OUT*) &rWI))
+    {
+      fprintf(stderr, "Error on put_window_rec\n");
+    }  
+    else {
+      fs4000_reserve_unit  ();
+    fs4000_control_led (2); /* blink rate */
+    fs4000_test_unit_ready ();
+    
+    fs4000_get_film_status_rec ((FS4000_GET_FILM_STATUS_DATA_IN_28*) &rFS);
+    printf("Film Holder Type %d\n", rFS.byHolderType);
+    printf("Frame %d\n", (rFS.unknown1 [0] >> 3));
 
 
-  fs4000_reserve_unit  ();
-  
-  fs4000_cancel();
+/*
+  fs4000_set_frame (0); // R2L
+  fs4000_set_frame (1); // L2R
+  fs4000_set_frame (12); // No move?
+  fs4000_set_frame (8); // R2L no move
+*/
+  /* position is the scanner itself not the holder frame */
+    fs4000_set_frame (0);
+    fs4000_move_position (0, 0, 0); /* carriage home, home */
+    fs4000_move_position (1, 0, 0); /*    fs4k_MoveHolder (0);*/
+      
+    fs4000_move_position (1, 4, 2*337); /* white pos, positives  */
+    sleep(2);
+    fs4000_move_position (1, 4, 798); /* black pos, positivess  */
+    sleep(2);
+    fs4000_move_position (1, 4, 90); /* black pos, neg  */
+    sleep(2);
+    fs4000_move_position (1, 4, 2*17); /* white pos, neg  */
+    sleep(2);
+    
+    sleep (2);
 
-  
-  fs4000_release_unit  ();
-  
-    sanei_usb_close( g_saneUsbDn);
+    fs4000_control_led (0);
+
+      fs4000_release_unit  ();
+
+    fs4000_move_position (0, 0, 0); /* carriage home, home */
+      fs4000_set_lamp (0, 0); /*fs4k_LampOff    (0);*/
+    fs4000_move_position (1, 0, 0); /*    fs4k_MoveHolder (0);*/
+
+
+/* eject */
+/*
+    fs4000_move_position (0, 0, 0);
+    fs4000_move_position (1, 1, 0);
+*/    
+
+    }
+  }
+
+  sanei_usb_close( g_saneUsbDn);
   
   return 0;
 }

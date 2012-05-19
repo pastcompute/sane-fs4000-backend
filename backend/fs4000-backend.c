@@ -22,9 +22,6 @@
 
 #define V_MINOR 0
 
-void sanei_fs4000_reserve_unit() {}
-void sanei_fs4000_release_unit() {}
-
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 /**
  * Backend entry point.
