@@ -31,12 +31,13 @@
 
 --------------------------------------------------------------*/
 
-#define STRICT
-#include <windows.h>
 #include <stdio.h>
 
-#include "scsidefs.h"
-#include "scsi_via_usb.h"
+#include "fs4000-scsidefs.h"
+#include "fs4000-scsi_via_usb.h"
+
+#include <string.h>
+#define wsprintf sprintf
 
 /*
         USB fields are split into global and per_user because I did this
@@ -53,6 +54,23 @@
 
         USB_FIELDS      usb;
 
+#include <usb.h>
+
+#define lusb_open usb_open
+#define lusb_close usb_close
+#define lusb_bulk_read usb_bulk_read
+#define lusb_control_msg usb_control_msg
+#define lusb_set_configuration usb_set_configuration
+#define lusb_claim_interface usb_claim_interface
+#define lusb_release_interface usb_release_interface
+#define lusb_init usb_init
+#define lusb_set_debug usb_set_debug
+#define lusb_set_find_busses usb_set_find_busses
+#define lusb_set_find_devices usb_set_find_devices
+#define lusb_get_busses usb_get_busses
+#define lusb_get_version usb_get_version
+
+#ifdef DELETE_ME
 usb_dev_handle* (*lusb_open)            (struct usb_device *dev);
 int     (*lusb_close)                   (usb_dev_handle *dev);
 int     (*lusb_bulk_read)               (usb_dev_handle *dev,
@@ -80,7 +98,7 @@ int     (*lusb_find_busses)             (void);
 int     (*lusb_find_devices)            (void);
 struct usb_bus* (*lusb_get_busses)      (void);
 struct usb_version* (*lusb_get_version) (void);
-
+#endif
 
 /*--------------------------------------------------------------
 
@@ -89,9 +107,10 @@ struct usb_version* (*lusb_get_version) (void);
 --------------------------------------------------------------*/
 
 int
-usb_init_user           (USB_PER_USER *pUser)
+sanei_usb_init_user           (USB_PER_USER *pUser)
 {
   Nullit (*pUser);
+#ifdef DELETE_ME
   pUser->hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
   if (!pUser->hEvent)
     {
@@ -100,6 +119,7 @@ usb_init_user           (USB_PER_USER *pUser)
     }
   pUser->HA_count = usb.g.HA_count;
   pUser->max_transfer = 65536;
+#endif
   return 0;
 }
 
@@ -111,9 +131,11 @@ usb_init_user           (USB_PER_USER *pUser)
 --------------------------------------------------------------*/
 
 int
-usb_deinit_user         (USB_PER_USER *pUser)
+sanei_usb_deinit_user         (USB_PER_USER *pUser)
 {
+#ifdef DELETE_ME
   CloseHandle (pUser->hEvent);
+#endif  
   Nullit      (*pUser);
   return 0;
 }
@@ -126,7 +148,7 @@ usb_deinit_user         (USB_PER_USER *pUser)
 --------------------------------------------------------------*/
 
 int
-usb_init                (void)
+sanei_usb_init                (void)
 {
         char            UsbFilename  [] = "\\\\.\\Usbscan%d";
         char            cFilename [24], *pFilename;
@@ -142,7 +164,7 @@ usb_init                (void)
   usb.g.hLibUsbDll = NULL;
   usb.g.HA_count   = 0;
 
-  for (x = 0; x < 10; x++)                      // check //./UsbScan?
+  for (x = 0; x < 10; x++)                      /* check //./UsbScan?*/
     {
     wsprintf (cFilename, UsbFilename, x);
     pFilename = cFilename;
@@ -155,22 +177,22 @@ usb_init                (void)
                                  NULL);
     if (usb.g.hScanner == INVALID_HANDLE_VALUE)
       continue;
-    if ((0 == usb_unit_inquiry (&rLI))                  &&
+    if ((0 == sanei_usb_unit_inquiry (&rLI))                  &&
         (0 == memcmp (rLI.vendor, "CANON ", 6))         &&
         (0 == memcmp (rLI.product, "IX-40015G ", 10))   )
       {
       printf ("Using %s for scanner access\n", pFilename);
       usb.g.HA_count = 1;
-      return usb_init_user (&usb.u);
+      return sanei_usb_init_user (&usb.u);
       }
     CloseHandle (usb.g.hScanner);
     }
-  usb.g.hScanner = NULL;                        // 0 = no access via file
+  usb.g.hScanner = NULL;                        /* 0 = no access via file*/
 
   usb.g.hLibUsbDll = LoadLibrary ("LIBUSB0.DLL");
   if (usb.g.hLibUsbDll == 0)
     {
-//  printf ("ERROR: LIBUSB0.DLL not found.\n");
+/*  printf ("ERROR: LIBUSB0.DLL not found.\n");*/
     goto bye;
     }
 
@@ -205,19 +227,19 @@ usb_init                (void)
   version = lusb_get_version ();
   if (version)
     {
-//  printf ("LibUSB DLL version: %i.%i.%i.%i\n",
-//           version->dll.major, version->dll.minor,
-//           version->dll.micro, version->dll.nano);
-//
+/*  printf ("LibUSB DLL version: %i.%i.%i.%i\n",*/
+/*           version->dll.major, version->dll.minor,*/
+/*           version->dll.micro, version->dll.nano);*/
+/**/
     if (version->driver.major == -1)
       {
       printf ("LibUSB driver not running\r\n");
       goto bye;
       }
 
-//  printf ("Driver version:     %i.%i.%i.%i\n",
-//           version->driver.major, version->driver.minor,
-//           version->driver.micro, version->driver.nano);
+/*  printf ("Driver version:     %i.%i.%i.%i\n",*/
+/*           version->driver.major, version->driver.minor,*/
+/*           version->driver.micro, version->driver.nano);*/
     }
 
   for (bus = lusb_get_busses(); bus; bus = bus->next)
@@ -227,16 +249,16 @@ usb_init                (void)
       if (!dev->config)
         continue;
 
-      if ((dev->descriptor.idVendor  != 0x04A9) ||            // Canon
-          (dev->descriptor.idProduct != 0x3042) )             // FS4000US
+      if ((dev->descriptor.idVendor  != 0x04A9) ||            /* Canon*/
+          (dev->descriptor.idProduct != 0x3042) )             /* FS4000US*/
         continue;
 
       udev = lusb_open (dev);
       if (!udev)
         continue;
 
-//    lusb_set_debug (1);
-//    printf ("config value = %d\n", dev->config[0].bConfigurationValue);
+/*    lusb_set_debug (1);*/
+/*    printf ("config value = %d\n", dev->config[0].bConfigurationValue);*/
       x = lusb_set_configuration (udev, dev->config[0].bConfigurationValue);
       if (x < 0)
         printf ("set config error = %d\n", x);
@@ -246,14 +268,14 @@ usb_init                (void)
       usb.g.byInterfaceNumber =
         dev->config[0].interface[0].altsetting[0].bInterfaceNumber;
 
-//    printf ("interface = %d\n", usb.g.byInterfaceNumber);
+/*    printf ("interface = %d\n", usb.g.byInterfaceNumber);*/
       x = lusb_claim_interface (udev, usb.g.byInterfaceNumber);
       if (x < 0)
         printf ("claim interface error = %d\n", x);
 
       usb.g.HA_count = 1;
       printf ("Using LibUSB for scanner access\n");
-      return usb_init_user (&usb.u);
+      return sanei_usb_init_user (&usb.u);
       }
     }
 bye:
@@ -273,13 +295,13 @@ bye:
 --------------------------------------------------------------*/
 
 int
-usb_deinit              (void)
+sanei_usb_deinit              (void)
 {
-        // release default user fields
+        /* release default user fields*/
 
-  usb_deinit_user (&usb.u);
+  sanei_usb_deinit_user (&usb.u);
 
-        // close handle
+        /* close handle*/
 
   if (usb.g.hScanner)
     {
@@ -292,7 +314,7 @@ usb_deinit              (void)
     lusb_release_interface (usb.g.pUdev, usb.g.byInterfaceNumber);
     lusb_close (usb.g.pUdev);
 
-        // unload LIBUSB0.DLL
+        /* unload LIBUSB0.DLL*/
 
     FreeLibrary (usb.g.hLibUsbDll);
     usb.g.hLibUsbDll = NULL;
@@ -309,7 +331,7 @@ usb_deinit              (void)
 --------------------------------------------------------------*/
 
 int
-usb_do_request          (DWORD          dwValue,
+sanei_usb_do_request          (DWORD          dwValue,
                          BOOL           bInput,
                          void           *pBuf,
                          DWORD          dwBufLen)
@@ -319,28 +341,28 @@ usb_do_request          (DWORD          dwValue,
         DWORD           cbRet, dwFunc;
         IO_BLOCK_EX     IoBlockEx;
 
-        // bit 7        0 = output, 1 = input
-        // bits 6-5     2 = vendor special
-        // bits 4-0     0 = recipient is device
+        /* bit 7        0 = output, 1 = input*/
+        /* bits 6-5     2 = vendor special*/
+        /* bits 4-0     0 = recipient is device*/
   byRequestType = bInput ? 0xC0 : 0x40;
 
-        // loaded by driver according to ddk
-  byRequest = (dwBufLen < 2) ? 0x0C : 0x04;     // is this significant ?
+        /* loaded by driver according to ddk*/
+  byRequest = (dwBufLen < 2) ? 0x0C : 0x04;     /* is this significant ?*/
 
-  if (usb.g.hLibUsbDll)                         // using LibUSB ?
+  if (usb.g.hLibUsbDll)                         /* using LibUSB ?*/
     {
-    lusb_control_msg (usb.g.pUdev,              // usb_dev_handle *dev,
-                      byRequestType,            // int requesttype,
-                      byRequest,                // int request,
-                      dwValue,                  // int value,
-                      0,                        // int index,
-                      pBuf,                     // char *bytes,
-                      dwBufLen,                 // int size,
-                      0);                       // int timeout);
+    lusb_control_msg (usb.g.pUdev,              /* usb_dev_handle *dev,*/
+                      byRequestType,            /* int requesttype,*/
+                      byRequest,                /* int request,*/
+                      dwValue,                  /* int value,*/
+                      0,                        /* int index,*/
+                      pBuf,                     /* char *bytes,*/
+                      dwBufLen,                 /* int size,*/
+                      0);                       /* int timeout);*/
     return 0;
     }
 
-  Nullit (IoBlockEx);                           // build I/O block
+  Nullit (IoBlockEx);                           /* build I/O block*/
   IoBlockEx.uOffset              = dwValue;
   IoBlockEx.uLength              = dwBufLen;
   IoBlockEx.pbyData              = (BYTE*) pBuf;
@@ -352,7 +374,7 @@ usb_do_request          (DWORD          dwValue,
   cbRet = 0;
   dwFunc = bInput ? IOCTL_READ_REGISTERS : IOCTL_WRITE_REGISTERS;
 
-  bRet = DeviceIoControl (usb.g.hScanner,       // control message
+  bRet = DeviceIoControl (usb.g.hScanner,       /* control message*/
                           dwFunc,
                           &IoBlockEx,
                           sizeof (IoBlockEx),
@@ -378,7 +400,7 @@ usb_do_request          (DWORD          dwValue,
 --------------------------------------------------------------*/
 
 int
-usb_scsi_exec           (void           *cdb,
+sanei_usb_scsi_exec           (void           *cdb,
                          unsigned int   cdb_length,
                          int            mode_and_dir,
                          void           *pdb,
@@ -391,16 +413,16 @@ usb_scsi_exec           (void           *cdb,
         BYTE            *pbyCmd = (BYTE*) cdb;
         BOOL            bInput;
         DWORD           dwValue, dwValueC5 = 0xC500, dwValue03 = 0x0300;
-        BYTE            byStatPDB [4];          // from C500 request
-        BYTE            bySensPDB [14];         // from 0300 request
+        BYTE            byStatPDB [4];          /* from C500 request*/
+        BYTE            bySensPDB [14];         /* from 0300 request*/
 
-  if (!pdb_len)                         // if no data, use dummy output
+  if (!pdb_len)                         /* if no data, use dummy output*/
     {
     mode_and_dir &= ~SRB_DIR_IN;
     mode_and_dir |= SRB_DIR_OUT;
-    pdb = &byNull;                              // default output
+    pdb = &byNull;                              /* default output*/
     pdb_len = 1;
-    if (*pbyCmd == 0x00)                        // change for some
+    if (*pbyCmd == 0x00)                        /* change for some*/
       pdb = &byOne;
     if (*pbyCmd == 0xE4)
       pdb = &byOne;
@@ -417,24 +439,24 @@ usb_scsi_exec           (void           *cdb,
     if (*pbyCmd == 0xE8)
       pdb = pbyCmd + 1;
     }
-  if (*pbyCmd == 0x28)                          // if read
+  if (*pbyCmd == 0x28)                          /* if read*/
     {
-    mode_and_dir &= ~SRB_DIR_IN;                // output not input
+    mode_and_dir &= ~SRB_DIR_IN;                /* output not input*/
     mode_and_dir |= SRB_DIR_OUT;
-    pdb = pbyCmd + 6;                           // send buf size
+    pdb = pbyCmd + 6;                           /* send buf size*/
     pdb_len = 3;
     }
 
-  dwValue =  pbyCmd [0] << 8;                   // build parameters
+  dwValue =  pbyCmd [0] << 8;                   /* build parameters*/
   if (cdb_length > 2)
     if ((*pbyCmd == 0x12) || (*pbyCmd == 0xD5))
       dwValue += pbyCmd [2];
   bInput = (mode_and_dir & SRB_DIR_IN) > 0;
 
-  if (usb_do_request (dwValue, bInput, pdb, pdb_len))   // SCSI via USB
+  if (usb_do_request (dwValue, bInput, pdb, pdb_len))   /* SCSI via USB*/
     return -1;
 
-  if (*pbyCmd == 0x28)                          // if read, get bulk data
+  if (*pbyCmd == 0x28)                          /* if read, get bulk data*/
     {
     if (usb.g.hLibUsbDll)
       dwBytes = lusb_bulk_read (usb.g.pUdev, 0x81, save_pdb, save_pdb_len, 0);
@@ -444,23 +466,23 @@ usb_scsi_exec           (void           *cdb,
       return -1;
     }
 
-  if (usb_do_request (dwValueC5, TRUE, &byStatPDB, 4))  // get status
+  if (usb_do_request (dwValueC5, TRUE, &byStatPDB, 4))  /* get status*/
     return -1;
 
   if (byStatPDB [0] != *pbyCmd)
     if ((byStatPDB [0] != 0) || ((*pbyCmd != 0x16) && (*pbyCmd != 0x17)))
       printf ("cmd mismatch %02X %02X\n", *pbyCmd, byStatPDB [0]);
 
-  if (byStatPDB [1] & 0xFF)                             // sense data ?
+  if (byStatPDB [1] & 0xFF)                             /* sense data ?*/
     {
-    usb_do_request (dwValue03, TRUE, &bySensPDB, 14);   // get sense
+    sanei_usb_do_request (dwValue03, TRUE, &bySensPDB, 14);   /* get sense*/
     printf ("sense");
     for (x = 0; x < 14; x++)
       printf (" %02X", bySensPDB [x]);
     printf ("\n");
     }
 
-  SetEvent (usb.u.hEvent);                              // I/O done
+  SetEvent (usb.u.hEvent);                              /* I/O done*/
 
   return 0;
 }
@@ -473,14 +495,14 @@ usb_scsi_exec           (void           *cdb,
 --------------------------------------------------------------*/
 
 int
-usb_unit_inquiry        (LUN_INQUIRY *pLI)
+sanei_usb_unit_inquiry        (LUN_INQUIRY *pLI)
 {
         BYTE            CDB [6];
 
   Nullit (CDB);
   CDB [0] = SCSI_INQUIRY;
   CDB [4] = 36;
-  return usb_scsi_exec (CDB, 6, SRB_DIR_IN, pLI, sizeof (*pLI));
+  return sanei_usb_scsi_exec (CDB, 6, SRB_DIR_IN, pLI, sizeof (*pLI));
 }
 
 

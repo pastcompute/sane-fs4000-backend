@@ -1,20 +1,27 @@
-#ifndef _SCSI_VIA_USB_H_
-#define _SCSI_VIA_USB_H_
+#ifndef SANE_BACKEND_FS4000_SCSI_VIA_USB_H__
+#define SANE_BACKEND_FS4000_SCSI_VIA_USB_H__
 
-#include "wnaspi32.h"
+/*#include "wnaspi32.h"*/
 
-#ifdef __cplusplus
-extern "C" {
-#endif //__cplusplus
+#include <stdint.h>
+#ifndef ULONG
+#define ULONG uint32_t  /* initial assumption... ported from 32-bit windows */
+#endif
+#ifndef PUCHAR
+#define PUCHAR uint8_t*  /* initial assumption... ported from 32-bit windows */
+#endif
+#ifndef UCHAR
+#define UCHAR uint8_t  /* initial assumption... ported from 32-bit windows */
+#endif
 
-//--------------------------------------------------------------
-//
-//              For USB access via file
-//
-//      W98 rejects IOCTL_SEND_USB_REQUEST so we have to use
-//      IOCTL_READ_REGISTERS and IOCTL_WRITE_REGISTERS instead.
-//
-//      W2k accepts all three functions.
+/*-------------------------------------------------------------- */
+/* */
+/*              For USB access via file */
+/* */
+/*      W98 rejects IOCTL_SEND_USB_REQUEST so we have to use */
+/*      IOCTL_READ_REGISTERS and IOCTL_WRITE_REGISTERS instead. */
+/* */
+/*      W2k accepts all three functions. */
 
 #define FILE_DEVICE_USB_SCAN            0x8000
 #define IOCTL_INDEX                     0x0800
@@ -38,9 +45,9 @@ typedef struct _IO_BLOCK_EX
 }
   IO_BLOCK_EX, *PIO_BLOCK_EX;
 
-//--------------------------------------------------------------
-//
-//              For USB access via LibUSB
+/*-------------------------------------------------------------- */
+/* */
+/*              For USB access via LibUSB */
 
 #include <stdlib.h>
 
@@ -104,9 +111,10 @@ typedef struct _IO_BLOCK_EX
 
 /* ensure byte-packed structures */
 
-#include <pshpack1.h>
+/*#include <pshpack1.h>*/
+#pragma pack(push,1)
 
-
+#ifdef DELETE_ME
 /* All standard descriptors have these 2 fields in common */
 struct usb_descriptor_header {
   unsigned char  bLength;
@@ -309,6 +317,8 @@ struct usb_version {
   } driver;
 };
 
+#endif
+
 
 struct usb_dev_handle;
 
@@ -317,13 +327,15 @@ typedef struct usb_dev_handle usb_dev_handle;
 /* Variables */
 extern struct usb_bus *usb_busses;
 
-#include <poppack.h>
+/*#include <poppack.h>*/
+#pragma pack(pop)
 
-//--------------------------------------------------------------
+/*-------------------------------------------------------------- */
 
+/*
 #ifndef _SCSI_VIA_ASPI_H_
 
-typedef struct  /* LUN_INQUIRY */
+typedef struct
 {
         byte            reserved [8];
         byte            vendor   [8];
@@ -333,6 +345,15 @@ typedef struct  /* LUN_INQUIRY */
   LUN_INQUIRY;
 
 #endif
+*/
+
+#include <scsi/sg_cmds.h> /* provides sg_simple_inquiry_resp which has vendor, etc. */
+#define LUN_INQUIRY struct sg_simple_inquiry_resp
+#define HANDLE void*
+#define DWORD uint32_t
+#include <stdbool.h>
+#define BOOL bool
+
 
 typedef struct  /* USB_GLOBALS */
 {
@@ -364,29 +385,26 @@ typedef struct  /* USB_FIELDS */
 
 extern  USB_FIELDS      usb;
 
-int     usb_init_user           (USB_PER_USER *pUser);
+int     sanei_usb_init_user           (USB_PER_USER *pUser);
 
-int     usb_deinit_user         (USB_PER_USER *pUser);
+int     sanei_usb_deinit_user         (USB_PER_USER *pUser);
 
-int     usb_init                (void);
+int     sanei_usb_init                (void);
 
-int     usb_deinit              (void);
+int     sanei_usb_deinit              (void);
 
-int     usb_do_request          (DWORD          dwValue,
+int     sanei_usb_do_request          (DWORD          dwValue,
                                  BOOL           bInput,
                                  void           *pBuf,
                                  DWORD          dwBufLen);
 
-int     usb_scsi_exec           (void         *cdb,
+int     sanei_usb_scsi_exec           (void         *cdb,
                                  unsigned int cdb_length,
                                  int          mode_and_dir,
                                  void         *data_buf,
                                  unsigned int data_buf_len);
 
-int     usb_unit_inquiry        (LUN_INQUIRY *pLI);
+int     sanei_usb_unit_inquiry        (LUN_INQUIRY *pLI);
 
-#ifdef __cplusplus
-}
-#endif //__cplusplus
 
-#endif /* _SCSI_VIA_USB_H_ */
+#endif

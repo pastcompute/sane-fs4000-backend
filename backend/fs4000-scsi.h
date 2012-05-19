@@ -28,7 +28,7 @@ typedef unsigned int UINT4;
 typedef unsigned short int PIXEL;
 #endif
 
-#include <windows.h>
+/*#include <windows.h>*/
 
 /* if this is set to 0, no debug output to stdout. If <> 0, debug output.
    this can be turned off and on on-the-fly. */
@@ -613,13 +613,13 @@ void print_fs4000_extended_inquiry(FS4000_INQUIRY_CDB *cdb, FS4000_EXTENDED_INQU
 int fs4000_extended_inquiry(FS4000_EXTENDED_INQUIRY_DATA_IN *data);
 void swap_endian_FS4000_MODE_SELECT_DATA_OUT(FS4000_MODE_SELECT_DATA_OUT *data);
 void print_fs4000_mode_select(FS4000_MODE_SELECT_CDB *cdb, FS4000_MODE_SELECT_DATA_OUT *data);
-int     fs4000_mode_select      (void);                         // SJS
+int     fs4000_mode_select      (void);                         /* SJS */
 void print_fs4000_reserve_unit(FS4000_RESERVE_UNIT_CDB *cdb);
-int     fs4000_reserve_unit     (void);                         // SJS
+int     fs4000_reserve_unit     (void);                         /* SJS */
 void print_fs4000_release_unit(FS4000_RELEASE_UNIT_CDB *cdb);
-int     fs4000_release_unit     (void);                         // SJS
+int     fs4000_release_unit     (void);                         /* SJS */
 void print_fs4000_scan(FS4000_SCAN_CDB *cdb, FS4000_SCAN_DATA_OUT *data);
-int     fs4000_scan             (void);                         // SJS
+int     fs4000_scan             (void);                         /* SJS */
 void swap_endian_FS4000_GETSET_WINDOW_DATA(FS4000_GET_WINDOW_DATA_IN *data);
 void swap_endian_FS4000_SET_WINDOW_CDB(FS4000_SET_WINDOW_CDB *cdb);
 void print_fs4000_set_window(FS4000_SET_WINDOW_CDB *cdb, FS4000_SET_WINDOW_DATA_OUT *data);
@@ -641,7 +641,7 @@ void swap_endian_FS4000_DEFINE_SCAN_MODE_CDB(FS4000_DEFINE_SCAN_MODE_CDB *cdb);
 void print_fs4000_define_scan_mode(FS4000_DEFINE_SCAN_MODE_CDB *cdb, FS4000_DEFINE_SCAN_MODE_DATA_OUT *data);
 int fs4000_define_scan_mode(FS4000_DEFINE_SCAN_MODE_DATA_OUT *data);
 void print_FS4000_SCAN_FOR_THUMBNAIL_CDB(FS4000_SCAN_FOR_THUMBNAIL_CDB *cdb);
-int     fs4000_scan_for_thumbnail (void);                       // SJS
+int     fs4000_scan_for_thumbnail (void);                       /* SJS */
 void swap_endian_FS4000_EXECUTE_AFAE_DATA_OUT(FS4000_EXECUTE_AFAE_DATA_OUT *data);
 void print_fs4000_execute_afae(FS4000_EXECUTE_AFAE_CDB *cdb, FS4000_EXECUTE_AFAE_DATA_OUT *data);
 int fs4000_execute_afae(BYTE unknown1a, BYTE unknown1b, BYTE unknown1c, BYTE focus_position, UINT2 unknown2, UINT2 unknown3);
@@ -649,7 +649,7 @@ void swap_endian_FS4000_GET_FILM_STATUS_DATA_IN(FS4000_GET_FILM_STATUS_DATA_IN_2
 void print_fs4000_get_film_status(FS4000_GET_FILM_STATUS_CDB *cdb, FS4000_GET_FILM_STATUS_DATA_IN_25 *data25, FS4000_GET_FILM_STATUS_DATA_IN_28 *data28);
 int fs4000_get_film_status(int shorter, BYTE *film_holder, BYTE *num_frames, UINT2 *film_position, BYTE *focus_position);
 void print_fs4000_cancel(FS4000_CANCEL_CDB *cdb);
-int     fs4000_cancel           (void);                         // SJS
+int     fs4000_cancel           (void);                         /* SJS */
 void swap_endian_FS4000_MOVE_POSITION_CDB(FS4000_MOVE_POSITION_CDB *cdb);
 void print_fs4000_move_position(FS4000_MOVE_POSITION_CDB *cdb);
 int fs4000_move_position(BYTE unknown1, BYTE unknown2, UINT2 position);
@@ -732,7 +732,7 @@ int     fs4000_put_window_rec   (FS4000_SET_WINDOW_DATA_OUT *param);
 int setup_rgb_deinterleave(unsigned int pixels_per_line, unsigned int interleave_amount);
 
 /* free_rgb_deinterleave: frees memory allocated in setup_rgb_deinterleave. */
-void    free_rgb_deinterleave   (void);                         // SJS
+void    free_rgb_deinterleave   (void);                         /* SJS */
 
 /* rgb_deinterleave: deinterleaves the input pixel data.
    returns 0 if success but data not ready.

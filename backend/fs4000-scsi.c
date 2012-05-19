@@ -33,7 +33,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fs4000-scsi.h"
-#include "scsi_via_aspi.h"
+#include "fs4000-wnaspi32.h"
+/* #include "scsi_via_aspi.h" */
 
 int fs4000_debug = 1;
 
@@ -478,8 +479,8 @@ void print_SCSI_WINDOW_DESCRIPTOR(SCSI_WINDOW_DESCRIPTOR *w)
         "Multi-level RGB colour" };
     static char *padding_type_descriptions[] = {
         "No padding",
-        "Pad with 0’s to byte boundary",
-        "Pad with 1’s to byte boundary",
+        "Pad with 0's to byte boundary",
+        "Pad with 1's to byte boundary",
         "Truncate to byte boundary" };
 
     if (w->window_id != 0)
@@ -520,7 +521,7 @@ void print_fs4000_set_window(FS4000_SET_WINDOW_CDB *cdb,
 {
     static FS4000_SET_WINDOW_CDB expected_cdb = { 0x24, 0, 0, 0, 0, 0, 0, 72, 0 };
     static SCSI_WINDOW_HEADER expected_values_header = { 0, 0, 0, 0, 0, 64 };
-//  SCSI_WINDOW_DESCRIPTOR *w = &data->window[1];
+/*  SCSI_WINDOW_DESCRIPTOR *w = &data->window[1];*/
 
     printf("SET WINDOW ");
     if (memcmp(cdb, &expected_cdb, sizeof(FS4000_SET_WINDOW_CDB)) != 0) {
@@ -564,7 +565,7 @@ int fs4000_set_window(UINT2 x_res,
   data.window[0].bits_per_pixel = bits_per_pixel;
   data.window[0].image_composition = 5;
   data.window[0].image_flags = (bits_per_pixel % 8) ? 3 : 0;
-//data.window[0].reserved[12] = 2;
+/*data.window[0].reserved[12] = 2;*/
 
   return fs4000_put_window_rec (&data);
 }
@@ -1538,9 +1539,9 @@ int rgb_mirror_line(PIXEL *inbuf,
 }
 
 
-//----------------------------------------------------------------------
-//      Additions to DB code
-//----------------------------------------------------------------------
+/*----------------------------------------------------------------------*/
+/*      Additions to DB code*/
+/*----------------------------------------------------------------------*/
 
 /*  -------------------------------------------------
 
@@ -1554,7 +1555,7 @@ print_fs4000_set_thumbnail_window (FS4000_SET_WINDOW_FOR_THUMBNAIL_CDB *cdb,
 {
         static FS4000_SET_WINDOW_FOR_THUMBNAIL_CDB expected_cdb = { 0xF0, 0, 0, 0, 0, 0, 0, 72, 0 };
         static SCSI_WINDOW_HEADER expected_values_header = { 0, 0, 0, 0, 0, 64 };
-//      SCSI_WINDOW_DESCRIPTOR *w = &data->window[1];
+/*      SCSI_WINDOW_DESCRIPTOR *w = &data->window[1];*/
 
   printf("SET THUMBNAIL WINDOW ");
   if (memcmp(cdb, &expected_cdb, sizeof(FS4000_SET_WINDOW_FOR_THUMBNAIL_CDB)) != 0)
@@ -1604,7 +1605,7 @@ fs4000_set_thumbnail_window     (UINT2 x_res,
   data.window[0].bits_per_pixel = bits_per_pixel;
   if (bits_per_pixel == 14)
     data.window[0].image_flags = 3;
-  data.window[0].reserved[12] = 2;              //  Need this !!!
+  data.window[0].reserved[12] = 2;              /*  Need this !!!*/
 
   if (fs4000_debug == 1) print_fs4000_set_thumbnail_window (&cdb, &data);
 
@@ -1881,9 +1882,9 @@ fs4000_put_window_rec   (FS4000_SET_WINDOW_DATA_OUT *param)
   cdb.opcode = 0x24;
   cdb.data_length = 72;
 
-  if (data.window[0].reserved[6] == 0x64)        // these 2 bytes are 0x64
-    data.window[0].reserved[6]   =  0;           // from GET but must be 0
-  if (data.window[0].reserved[7] == 0x64)        // for PUT
+  if (data.window[0].reserved[6] == 0x64)        /* these 2 bytes are 0x64*/
+    data.window[0].reserved[6]   =  0;           /* from GET but must be 0*/
+  if (data.window[0].reserved[7] == 0x64)        /* for PUT*/
     data.window[0].reserved[7]   =  0;
 
   if (fs4000_debug == 1) print_fs4000_set_window (&cdb, &data);

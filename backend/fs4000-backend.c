@@ -1,9 +1,3 @@
-/*
- * The document backend-writing.txt requests that the sane include files
- * be relative path as is done here.
- *
- * This still seems to build out of tree using for example the Debian package libsane-dev
- */
 #include "../include/sane/config.h"
 #include "../include/sane/sane.h"
 #include "../include/sane/saneopts.h"
@@ -27,6 +21,9 @@
 #endif
 
 #define V_MINOR 0
+
+void sanei_fs4000_reserve_unit() {}
+void sanei_fs4000_release_unit() {}
 
 /* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 /**
