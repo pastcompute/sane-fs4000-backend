@@ -1,0 +1,1 @@
+./configure --prefix=$HOME/opt/sane-1.0.22-git     --disable-translations     --enable-warnings     --disable-avahi     --disable-ipv6     --without-snmp     --enable-pnm-backend --disable-locking --enable-pthread --with-gphoto2 --enable-static --enable-maintainer-mode BACKENDS=fs4000
