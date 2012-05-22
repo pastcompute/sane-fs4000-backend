@@ -389,6 +389,31 @@ typedef struct {
     BYTE unknown6;          /* Valid values seem to be [0-2], [129-132]. No idea what this does. */
 } FS4000_GET_SCAN_MODE_DATA_IN_38, FS4000_DEFINE_SCAN_MODE_DATA_OUT;
 
+/* TODO: Merge this an alternative representation derived from Fs4000.cpp of 
+   FS4000_GET_SCAN_MODE_DATA_IN_38
+   
+   For now to expedite SANE backend development, union the type needed by
+   fs4000-scsi.h with the type used in Fs4000.cpp so we can avoid all the nasty
+   casting
+    */
+typedef union
+{
+  FS4000_GET_SCAN_MODE_DATA_IN_38 scsi;
+  struct control_ {
+      BYTE    byLength;               /* 0x25 */
+      BYTE    unknown1a       [3];    /* nulls */
+      BYTE    unknown1b       [11];   /* 20 20 00 00 00 00 00 00 00 00 00 */
+      BYTE    bySpeed;
+      BYTE    unknown2        [4];    /* 01 19 00 00 */
+      BYTE    bySampleMods;
+      BYTE    unknown2a;              /* 00 */
+      BYTE    byAGain         [3];
+      WORD    wAOffset        [3];
+      WORD    wShutter        [3];
+      BYTE    byImageMods;
+  } control;
+} FS4000_SCAN_MODE_INFO;
+
 typedef struct {
     BYTE unknown[12];   /* first byte is 11 which is the length of the rest of the data in bytes */
 } FS4000_GET_SCAN_MODE_DATA_IN_12;

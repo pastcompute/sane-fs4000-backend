@@ -58,6 +58,7 @@
 
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define FS4000_CONFIG_FILE "fs4000.conf"
 
@@ -75,6 +76,17 @@ struct scanner
   /* Latest state */
   SANE_Int lastError;
   
+  BOOL            bShowProgress       ; /* = TRUE; */
+  BOOL            bStepping           ; /* = FALSE; */
+  BOOL            bTesting            ; /* = FALSE; */
+  BOOL            bNegMode            ; /* = FALSE; */
+  BOOL            bAutoExp            ; /* = FALSE; */
+  BOOL            bSaveRaw            ; /* = FALSE; */
+  BOOL            bMakeTiff           ; /* = TRUE; */
+  BOOL            bUseHelper          ; /* = FALSE; */
+
+  BOOL            bDisableShutters    ; /* = FALSE; */
+
   int             iAGain    [3]       ; /* = {  47,   36,   36}; */
   int             iAOffset  [3]       ; /* = { -25,   -8,   -5}; */
   int             iShutter  [3]       ; /* = { 750,  352,  235}; */
@@ -89,6 +101,7 @@ struct scanner
 
   FS4000_GET_LAMP_DATA_IN rLI;
   FS4000_GET_FILM_STATUS_DATA_IN_28 rFS;
+  FS4000_SCAN_MODE_INFO rSMI;
   
   /* working buffers */
   char msg[MAX_MSG+1];
@@ -105,46 +118,60 @@ static void fs4k_sleep(int milliseconds)
   usleep(milliseconds * 1000);
 }
 
-static void fs4k_feedback(struct scanner* s)
+/* This should write to the tty if stdout redirected to a file ... */
+static void fs4k_Feedback(struct scanner* s)
 {
   s->msg[MAX_MSG] = 0;
   if (s->feedbackFunction)
     (s->feedbackFunction)(s->msg);
 }
 
-static void fs4k_news(struct scanner* s, const char *text)
+static void fs4k_NewsTask(struct scanner* s)
+{
+  if (s->feedbackFunction)
+    (s->feedbackFunction)(s->msg);
+}
+
+/* For now is same as task, fix up later */
+static void fs4k_NewsStep(struct scanner* s, const char *text)
 {
   snprintf( s->msg, MAX_MSG, text);
   if (s->feedbackFunction)
     (s->feedbackFunction)(s->msg);
 }
 
-static void fs4k_warning(struct scanner *s, const char *text)
+static void fs4k_Warning(struct scanner *s, const char *text)
 {
   snprintf( s->warn, MAX_WARN, text);
   if (s->feedbackFunction)
     (s->feedbackFunction)(text);
 }
 
-/* Equivalent to AbortWanted() */
-static int fs4k_checkAbort(struct scanner* s)
+/* Equivalent to AbortWanted()  - return 0 to not abort */
+static int fs4k_checkAbort(const struct scanner* s)
 {
   if (s->abortFunction) 
     return (s->abortFunction)();
   return 1;
 }
 
-/* Equivalent to FS4_Halt() */
-static int fs4k_Halt(struct scanner *s)
+/* Equivalent to FS4_Halt() - return 0 to not halt */
+static int fs4k_Halt(const struct scanner *s)
 {
   if (s->abortFunction) 
     return (s->abortFunction)();
-  return 1;
+  return 0;
 }
 
-void fs4k_init(struct scanner *s) 
+void fs4k_init(struct scanner **s) 
 {
-  memset( s, 0, sizeof(struct scanner));
+  *s = malloc(sizeof(struct scanner));
+  memset( *s, 0, sizeof(struct scanner));
+}
+
+void fs4k_destroy(struct scanner *s) 
+{
+  free(s);
 }
 
 void fs4k_SetFeedbackFunction( struct scanner *s, void (*f)(const char *))
@@ -158,7 +185,7 @@ void fs4k_SetAbortFunction( struct scanner *s, int (*f)(void))
 }
 
 
-int fs4k_GetLastError(struct scanner* s)
+int fs4k_GetLastError(const struct scanner* s)
 {
   return s->lastError;
 }
@@ -191,14 +218,45 @@ int fs4k_LampOn(struct scanner* s, int iOnSecs)
     if ((int) s->rLI.visible_lamp_duration >= iOnSecs)
       break;
     snprintf (s->msg, MAX_MSG, "Waiting for lamp (%d)  \r", iOnSecs - s->rLI.visible_lamp_duration);
-    fs4k_feedback(s);
-    if (!(abort=fs4k_checkAbort(s))) 
+    fs4k_NewsStep(s, s->msg);
+    if ((abort=fs4k_checkAbort(s))) 
       break;
     fs4k_sleep (500);
-  } while ((abort=fs4k_checkAbort(s)));
+  } while (!(abort=fs4k_checkAbort(s)));
   
   return abort ? -1 : 0;
 }
+
+
+/** Return config byte for ScanModeData */
+static int fs4k_U24(const struct scanner *s)
+{
+  if (s->iInMode == 8)
+    return 0x03;
+  if (s->iInMode == 16)
+    return 0x02;
+  return 0x00;
+}
+
+/** Return analogue offset in AD9814 format */
+static int fs4k_AOffset(int iOffset)
+{
+  if (iOffset < -255)
+    iOffset   = -255;
+  if (iOffset >  255)
+    iOffset   =  255;
+  if (iOffset <    0)
+    iOffset = 256 - iOffset;
+  return iOffset;
+}
+
+/** Return bits/sample for window */
+static int fs4k_WBPS(const struct scanner *s)
+{
+  return s->iInMode;
+}
+
+
 
 /*--------------------------------------------------------------
 
@@ -238,6 +296,29 @@ static int fs4k_SetFrame(struct scanner* s, int iSetFrame)
   return 0;
 }
 
+static int fs4k_SetScanModeEx(struct scanner *s, BYTE bySpeed, 
+        BYTE byUnk2_4, int iUnk6)
+{
+  int     x;
+
+  fs4000_get_scan_mode_rec (&s->rSMI.scsi);
+  s->rSMI.control.bySpeed = bySpeed;
+  s->rSMI.control.bySampleMods = byUnk2_4;               /* 0-3 valid, 0 is bad if 8-bit */
+  if (s->iMargin == 0)
+    s->rSMI.control.bySampleMods |= 0x20;                /* stops margin */
+  for (x = 0; x < 3; x++)
+    {
+    s->rSMI.control.byAGain  [x] = s->iAGain   [x];       /* analogue gain (AD9814) */
+    s->rSMI.control.wAOffset [x] = fs4k_AOffset (s->iAOffset [x]); /* analogue offset */
+    s->rSMI.control.wShutter [x] = s->iShutter [x];       /* CCD shutter pulse width */
+    if (s->bDisableShutters)                     /* if special for tuning, */
+      s->rSMI.control.wShutter [x] = 0;
+    }
+  if (iUnk6 >= 0)
+    s->rSMI.control.byImageMods = iUnk6;
+  return fs4000_put_scan_mode_rec (&s->rSMI.scsi);
+}
+
 static int fs4k_release(struct scanner *s, int code)
 {
   fs4k_SetFrame        (s, 0);
@@ -248,7 +329,63 @@ static int fs4k_release(struct scanner *s, int code)
   return code;
 }
 
-int fs4k_scan(struct scanner *s, int iFrame, BOOL bAutoExp)
+/** scaffolding ... */
+static int fs4k_HackRead(struct scanner *s)
+{
+  enum { WAITING=0, PENDING, ABORTED };
+  int readStatus = WAITING;
+
+  size_t bufSize; /* linebytes * lines */
+  size_t bytesRead = 0;
+  int bytesNextBlock;
+  
+  PIXEL* buffer, *pcBuf;
+
+  unsigned int lineBytes, lines;
+  if (fs4000_get_data_status (&lines, &lineBytes))
+    return -1;
+  bufSize = lines * lineBytes;
+  /* Hueristic to get byter each pass to within minimum size and a multiple of lines */
+  bytesNextBlock = bufSize;
+  if (bytesNextBlock > 65536) bytesNextBlock = 65536;
+  bytesNextBlock /= lineBytes; /* Number of whole lines */
+  bytesNextBlock *= lineBytes; /* Back to exact lines worth of bytes */
+
+  buffer = pcBuf = malloc( lineBytes *bytesNextBlock);
+
+  printf("Lines %d LineBytes %d BlockBytes %d\n", lines, lineBytes, bytesNextBlock);
+
+
+  while (bytesRead < bufSize)
+  {
+    int bytesToGo;
+
+    if (readStatus != WAITING)
+      break;
+
+    bytesToGo = bufSize - bytesRead;
+    if (bytesNextBlock > bytesToGo)              /* short read at end ? */
+      bytesNextBlock = bytesToGo;
+
+    readStatus = PENDING;
+    if (fs4000_read (bytesNextBlock, pcBuf)) {
+      printf("Failed to read %d bytes\n", bytesNextBlock);
+      readStatus = ABORTED; /* can be improved - why not just break out? */
+    } else {
+      readStatus = WAITING;
+      printf("Read %d/%lu bytes\n", bytesRead, bufSize);
+  
+    }
+    pcBuf += bytesNextBlock;
+    bytesRead += bytesNextBlock;       /* update read count */
+  }
+  printf("READ STATUS: %d\n", readStatus);
+  free(buffer);
+  return 0;
+}
+
+
+int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp)
 {
   /* These magic numbers retained from Fs4000.cpp */
   int             iNegOff [6] = { 600, 1080, 1558, 2038, 2516, 2996};
@@ -258,7 +395,7 @@ int fs4k_scan(struct scanner *s, int iFrame, BOOL bAutoExp)
   char            szRawFID [256], *pRawFID;
 
   snprintf (s->msg, MAX_MSG, "Scan frame %d", iFrame + 1);
-  fs4k_feedback(s);
+  fs4k_NewsTask(s);
 
   fs4000_reserve_unit ();
   fs4000_control_led (2);
@@ -278,7 +415,7 @@ int fs4k_scan(struct scanner *s, int iFrame, BOOL bAutoExp)
               iOffset = iPosOff [iFrame];
               break;
 
-  default:    fs4k_warning(s, "No film holder");
+  default:    fs4k_Warning(s, "No film holder");
               fs4000_set_lamp (0, 0);
               return fs4k_release(s, -1);
   }
@@ -291,7 +428,42 @@ int fs4k_scan(struct scanner *s, int iFrame, BOOL bAutoExp)
   fs4000_move_position (1, 4, iOffset - 236);   /* focus position */
   if (fs4k_Halt (s)) return fs4k_release(s, -1);
 
-  fs4k_news (s, "Focussing");
+  fs4k_NewsStep (s, "Focussing");
+  fs4k_SetScanModeEx (s, 4, fs4k_U24 (s), -1);            /* mid exposure */
+  fs4000_execute_afae (1, 0, 0, 0, 500, 3500);
+  if (fs4k_Halt (s)) return fs4k_release(s, -1);
+  
+  fs4000_move_position (1, 4, iOffset);
+
+  iSetFrame = 0;                                /* R2L */
+  if (bAutoExp) {                                /* exposure pre-pass */
+    /* TODO */
+  }
+
+  fs4k_SetFrame (s, iSetFrame);                    /* L2R or R2L */
+
+  snprintf (s->msg, MAX_MSG, "Frame %d, speed = %d, red = %d, green = %d, blue = %d\n",
+                 iFrame + 1, s->iSpeed, s->iShutter [0], s->iShutter [1], s->iShutter [2]);
+  fs4k_Feedback(s);
+  
+  fs4k_SetScanModeEx (s, s->iSpeed, fs4k_U24 (s), -1);
+  fs4000_set_window(4000,                         /* UINT2 x_res, */
+                  4000,                         /*  UINT2 y_res, */
+                  0,                            /*  UINT4 x_upper_left, */
+                  0,                            /*  UINT4 y_upper_left, */
+                  4000,                         /*  UINT4 width, */
+                  5904,                         /*  UINT4 height, */
+                  fs4k_WBPS (s));                /*  BYTE bits_per_pixel); */
+  if (fs4k_Halt (s)) return fs4k_release(s, -1);
+
+  fs4k_NewsStep (s, "Reading");
+  fs4000_scan ();
+  
+  fs4k_HackRead(s);
+  
+  fs4k_NewsStep (s, "Done");
+  return fs4k_release(s, 0);
+
 
 #ifdef FIXME
 

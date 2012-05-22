@@ -59,9 +59,10 @@
 
 struct scanner;
 
-extern int fs4k_GetLastError(struct scanner* s); 
+extern int fs4k_GetLastError(const struct scanner* s); 
 
-extern void fs4k_init(struct scanner *s);
+extern void fs4k_init(struct scanner **s);
+extern void fs4k_destroy(struct scanner *s);
 
 /** Set a function for reporting progress messages.
  * Dangerous if called after everything has started.
@@ -103,7 +104,7 @@ extern int fs4k_LampOn(struct scanner* s, int iOnSecs);
 
 /** Execute scan of specified frame
  */
-extern int fs4k_scan(struct scanner *s, int iFrame, BOOL bAutoExp);
+extern int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp);
 
 
 #endif

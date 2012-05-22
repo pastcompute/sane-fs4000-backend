@@ -8,7 +8,7 @@ AM_CPPFLAGS = -I. -I$(srcdir) -I$(top_builddir)/include \
  -I$(top_srcdir)/include
 
 bin_PROGRAMS = sane-find-scanner gamma4scanimage
-noinst_PROGRAMS = sane-desc umax_pp sane-fs4000-test
+noinst_PROGRAMS = sane-desc umax_pp sane-fs4000-test sane_fs4k_test
 
 if CROSS_COMPILING
 HOTPLUG =
@@ -40,6 +40,10 @@ gamma4scanimage_LDADD = @MATH_LIB@
 sane_fs4000_test_SOURCES = sane-fs4000-test.c ../backend/fs4000-scsi.c ../backend/fs4000-usb.c
 sane_fs4000_test_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
 sane_fs4000_test_LDADD = ../sanei/libsanei.la ../lib/liblib.la -lusb
+
+sane_fs4k_test_SOURCES = sane-fs4k-test.c ../backend/fs4000-scsi.c ../backend/fs4000-scsi.h ../backend/fs4000-usb.c ../backend/fs4000-usb.h ../backend/fs4000-control.c ../backend/fs4000-control.h
+sane_fs4k_test_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
+sane_fs4k_test_LDADD = ../sanei/libsanei.la ../lib/liblib.la -lusb
 
 umax_pp_SOURCES = umax_pp.c ../backend/umax_pp_low.c
 umax_pp_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=umax_pp_low
