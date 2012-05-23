@@ -684,6 +684,9 @@ int fs4000_read(int buffer_size, PIXEL *buffer)
 {
     FS4000_READ_CDB cdb;
 
+    /* Sanity checking added by AMM... */
+    if (buffer_size < 0) return -1;
+
     memset(&cdb, 0, sizeof(cdb));
     cdb.opcode = 0x28;
     cdb.flags = 0x10;

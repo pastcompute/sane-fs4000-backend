@@ -64,26 +64,33 @@ extern int fs4k_GetLastError(const struct scanner* s);
 extern void fs4k_init(struct scanner **s);
 extern void fs4k_destroy(struct scanner *s);
 
-/** Set a function for reporting progress messages.
- * Dangerous if called after everything has started.
+/** 
+ * Set a function for reporting progress messages that would be displayed
+ *
+ * only on a TTY if redirecting output stdout/stderr
+ * Dangerous if set after everything has started, as use not thread protected
  */
 extern void fs4k_SetFeedbackFunction( struct scanner *s, void (*f)(const char *));
 
-/** Set a function for polling whether lengthy operations should abort.
- * Dangerous if called after everything has started.
- * @param f Function that should return 0 if in progress lengthy op should abort
+/** 
+ * Set a function for reporting warnings as the occur
+ *
+ * Dangerous if set after everything has started, as use not thread protected
+ */
+extern void fs4k_SetWarningFunction( struct scanner *s, void (*f)(const char *));
+
+/** 
+ * Set a function for polling whether lengthy operations should abort.
+ * Usually would check a flag set by a signal CTRL+C handler (for example)
+ *
+ * Dangerous if set  after everything has started, as use not thread protected
+ * @param f Function that should return 0 if in progress operatoin should abort
  */
 extern void fs4k_SetAbortFunction( struct scanner *s, int (*f)(void));
 
-/** Retrieve Scanner Lamp on time
- * @param s Handle to Scanner
- * @return Time in seconds that scanner lamp was on
- *         or -1 if off
- *         -1 if transport error occured (fs4k_GetLastError() > 0)
- */
-extern int fs4k_LampTest(struct scanner* s);
-
-/** Turn scanner lamp off, and optionally wait for specified time
+/** 
+ * Turn scanner lamp off, and optionally wait for specified time
+ *
  * TODO Optionally poll for cancellation
  * @param s Handle to Scanner
  * @param iOffSeconds Sleep this long after is > 0
@@ -92,18 +99,26 @@ extern int fs4k_LampTest(struct scanner* s);
  */
 extern int fs4k_LampOff(struct scanner* s, int iOffSecs);
 
-/** Turn scanner lamp on, and wait for specified time
- * Optionally poll for cancellation
+/** 
+ * Turn scanner lamp on, and ensure it had been on at least the specified time
+ *
+ * This will block up to iOnSecs.  If lamp had already been turned on, will
+ * only block as long as needed. Will call the abort checker every half second.
+ * 
  * @param s Handle to Scanner
  * @param iOnSeconds Wait for this long after if > 0
  * @return 0 on success
- *         -1 if transport error occured (fs4k_GetLastError() > 0)
+ *         -1 if transport error occured, or aborted
+ *         If aborted, fs4k_GetLastError() will == 0
  */
 extern int fs4k_LampOn(struct scanner* s, int iOnSecs);
 
 
-/** Execute scan of specified frame
- */
+/** Select 8, 14, or 16-bit input mode */
+extern int fs4k_SetInMode (struct scanner *s, int iNewMode);
+
+
+/** Execute scan of specified frame */
 extern int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp);
 
 

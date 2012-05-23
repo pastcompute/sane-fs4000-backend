@@ -90,12 +90,16 @@ int main(int argc, char*argv[])
 
     fs4000_move_position (1, 4, 90); /* black pos, neg  */
 
+/*
   printf("lamp on 1...\n");
   fs4k_LampOn( s, 1);
   
   printf("lamp off...\n");
   fs4k_LampOff( s, 1);
+*/
+
   
+  fs4k_SetInMode(s, 8); /* should be 8, 14 or 16 */
   fs4k_Scan( s, 2, 0);
   
   printf("cleanup\n");
