@@ -75,33 +75,19 @@ int main(int argc, char*argv[])
   
   
   fs4k_init(&s);
+  fs4k_InitData(s);
   fs4k_SetFeedbackFunction( s, feedback);
   fs4k_SetAbortFunction( s, check_abort);
-  
-  while (fs4000_test_unit_ready ()) {
-    /* kbhit / getch if (AbortWanted ()) */
-    sleep(1);
+  if (fs4k_InitCommands(s)) {
+    fs4k_destroy(s);
+    return 0;
   }
-  printf("querying...\n");
   
-  fs4000_cancel();
-
-  fs4000_reserve_unit ();
-
-    fs4000_move_position (1, 4, 90); /* black pos, neg  */
-
-/*
-  printf("lamp on 1...\n");
-  fs4k_LampOn( s, 1);
-  
-  printf("lamp off...\n");
-  fs4k_LampOff( s, 1);
-*/
-
+  printf("Scanning...\n");
   
   fs4k_SetInMode(s, 8); /* should be 8, 14 or 16 */
-  fs4k_Scan( s, 2, 0);
-  
+  fs4k_Scan( s, 5, SANE_FALSE);
+  /*convert  -size 4040x5904 -depth 8  /tmp/fs4000.rgb f.jpg*/
   printf("cleanup\n");
   
   fs4000_control_led (0);
@@ -110,5 +96,27 @@ int main(int argc, char*argv[])
   fs4000_move_position (1, 0, 0); /*    fs4k_MoveHolder (0);*/
   
   fs4k_destroy(s);
+  return 0;
 }
+
+/*
+ATTRS{idVendor}=="04a9", ATTRS{idProduct}=="3042", ENV{libsane_matched}="yes"
+
+Udev:
+ACTION!="add", GOTO="libsane_rules_end"
+ENV{DEVTYPE}=="usb_device", GOTO="libsane_create_usb_dev"
+SUBSYSTEMS=="scsi", GOTO="libsane_scsi_rules_begin"
+SUBSYSTEM=="usb_device", GOTO="libsane_usb_rules_begin"
+SUBSYSTEM!="usb_device", GOTO="libsane_usb_rules_end"
+
+# Kernel >= 2.6.22 jumps here
+LABEL="libsane_create_usb_dev"
+
+ATTRS{idVendor}=="03f0", ATTRS{idProduct}=="0101", MODE="0664", GROUP="scanner", ENV{libsane_matched}="yes"
+
+ENV{libsane_matched}=="yes", RUN+="/bin/sh -c 'if test -e /sys/$env{DEVPATH}/power/control; then echo on > /sys/$env{DEVPATH}/power/control; elif test -e /sys/$env{DEVPATH}/power/level; then echo on > /sys/$env{DEVPATH}/power/level; fi'
+ENV{libsane_matched}=="yes", MODE="664", GROUP="scanner"
+
+*/
+
 

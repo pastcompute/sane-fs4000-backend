@@ -387,6 +387,14 @@ typedef struct {
     UINT2 unknown5[3];
 
     BYTE unknown6;          /* Valid values seem to be [0-2], [129-132]. No idea what this does. */
+    
+    /*  Last 6 bytes:        
+        BYTE    byAGain         [3];
+        WORD    wAOffset        [3];
+        WORD    wShutter        [3];
+        BYTE    byImageMods;*/
+
+    
 } FS4000_GET_SCAN_MODE_DATA_IN_38, FS4000_DEFINE_SCAN_MODE_DATA_OUT;
 
 /* TODO: Merge this an alternative representation derived from Fs4000.cpp of 

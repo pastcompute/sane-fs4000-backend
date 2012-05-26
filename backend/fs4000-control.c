@@ -60,6 +60,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #define FS4000_CONFIG_FILE "fs4000.conf"
 
@@ -84,7 +85,7 @@ typedef struct
   size_t          dwBufSize;    /** Allocated size of pBuf */
   size_t          dwHeaderSize; /** Size of this structure ... Q. AMM - why? */
   DWORD           dwReadBytes;
-  DWORD           dwBytesRead;
+  DWORD           dwBytesRead;  /** Number of bytes in scan bulk read */
   UINT4           dwLines;
   UINT4           dwLineBytes;
   UINT4           dwLinesDone;
@@ -127,7 +128,7 @@ static int fs4k_AllocBuf(FS4K_SCAN_BUFFER_INFO *pBI, BYTE bySamplesPerPixel,
   pBI->dwBufSize = pBI->dwLineBytes * pBI->dwLines;
   /** @todo On Linux, consider posix_memalign for better efficiency, 
             consider also mlock */
-  pBI->pBuf = malloc( pBI->dwBufSize);
+  pBI->pBuf = calloc( pBI->dwBufSize, 1);
   if (!pBI->pBuf) {
     pBI->dwBufSize = 0;
     return 1;
@@ -147,7 +148,12 @@ static int fs4k_AllocBuf(FS4K_SCAN_BUFFER_INFO *pBI, BYTE bySamplesPerPixel,
   return 0;
 }
 
-
+typedef struct  /* FS4K_CAL_ENT */
+{
+  int             iOffset;
+  int             iMult;
+}
+FS4K_CAL_ENT;
 
 /** Structure to hold all state information for scanner */
 struct scanner
@@ -181,7 +187,9 @@ struct scanner
   FS4000_GET_LAMP_DATA_IN rLI;
   FS4000_GET_FILM_STATUS_DATA_IN_28 rFS;
   FS4000_SCAN_MODE_INFO rSMI;
+  FS4000_GET_WINDOW_DATA_IN rWI;
   FS4K_SCAN_BUFFER_INFO rBI;
+  FS4K_CAL_ENT    rCal     [12120]    ;
   
   /* working buffers */
   char task[MAX_MSG+1];
@@ -287,7 +295,7 @@ static int fs4k_checkAbort(const struct scanner* s)
 {
   if (s->abortFunction) 
     return (s->abortFunction)();
-  return 1;
+  return 0;
 }
 
 /* Equivalent to FS4_Halt() - return 0 to not halt */
@@ -357,6 +365,19 @@ int fs4k_LampOn(struct scanner* s, int iOnSecs)
   } while (!(abort=fs4k_checkAbort(s)));
   
   return abort ? -1 : 0;
+}
+
+/** Reset calibration array */
+static void fs4k_InitCalArray(struct scanner *s)
+{
+  int x;
+
+  for (x = 0; x < 12120; x++)
+  {
+    s->rCal [x].iOffset = 0;
+    s->rCal [x].iMult   = 16384;
+  }
+  return;
 }
 
 
@@ -515,74 +536,29 @@ static int fs4k_ReadScanFromScanner(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pB
       DEBUG(s, "Read %lu/%lu bytes from scanner. togo=%lu next=%lu\n", bytesRead, bufSize, bytesToGo, bytesNextBlock);
     }
   }
+  pBI->dwBytesRead = bytesRead;
   return 0;
 }
 
-/** 
- * Read scan data
- *
- * This routine starts the background reads and processes
- * the scan data as required.
- * @todo Currently we dont spawn a separate thread to do the reading
- *       Fs4000.cpp used a separate thread to read from the USB
- *       so that the shifting and saling could be done concurrently.
- *       We will come back and implement that later after everything works 
- *       in the slow lane first.
- *
- * Each scan line goes from the bottom up.
- * For a thumbnail the first line is the leftmost.
- * For a forward scan the first line is the rightmost.
- * For a reverse scan the first line is the leftmost.
- *
- * Like most of these functions, this is not re-entrant:
- * it will clobber s->rBI, for example, and change fs4000_debug during its lifetime
- *
- * 
- * @param s Scanner data
- * @param bySamplesPerPixel Samples per pixel, typ. 3
- * @param byBitsPerSample Bits per pixel, typ. 14
- * @param bCorrectSamples Fix negative samples if 'post margin', typ FALSE
- * @param iLPI ...?
- * @param dumpFileName Dump file filename path
- */
-static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
-                         BYTE byBitsPerSample, BOOL bCorrectSamples,
-                         int iLPI, const char *dumpFileName)
+/** Deinterlacing as required
+ ** and also apply tune calibration if requested */
+static void fs4k_Deinterlace(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pBI, BOOL bCorrectSamples)
 {
-  LONGLONG        qwSum;
-  int             iLineEnts, iLine, iCol, iSample, iColour, iIndex;
+  DWORD dwToDo;
+  DWORD dwBytesDone = 0;
+  DWORD dwSamples = 0;  /* stats .. */
+  WORD* pwBuf = (WORD*)pBI->pBuf;
+  BYTE* pbBuf = (BYTE*)pBI->pBuf;
+  int iIndex = 0;
   int             iShift, iShift2, iOff [3];
-  int             iLimit, iScale, iUnderflows, iOverflows;
+  int             iLineEnts, iLine, iCol, iColour;
   int             iWorstUnder, iWorstIndex, iWorstLine;
-  DWORD dwSamples;
-  const char *fault = NULL;
+  int             iLimit, iScale, iUnderflows, iOverflows;
+  LONGLONG        qwSum;
+  DWORD dwMaxPerLoop;
 
-  fs4k_FreeBuf (&s->rBI);
-
-  /* To avoid overloading with messages, temporarily change the debug level */
-  fs4k_PushDebug(s, 1/*0*/);
-
-  if ((s->lastError=fs4000_get_data_status (&s->rBI.dwLines, &s->rBI.dwLineBytes)))
-  {
-    fault = "Failed to acquire frame buffer size from scanner.";
-  } 
-  else if (fs4k_AllocBuf (&s->rBI, bySamplesPerPixel, byBitsPerSample))
-  {
-    fault = "Unable to allocate memory for frame.";
-  }
-  if (fault) {
-    fs4k_PopDebug(s);
-    fs4000_cancel ();  /* AMM Q. Is this the correct place to do this? */
-    fs4k_Fatal(s, fault);
-    /* ReturnCode = RC_SW_ABORT; AMM Q. Mixing of presentation layer? */
-    return -1;
-  }
-
-  s->rBI.wLPI = iLPI;
-  s->rBI.bySetFrame = s->iFrame;
-  s->rBI.byLeftToRight = (s->rBI.bySetFrame & 0x01);
-
-/*
+  
+/* Coment from Fs4000.cpp :
       Shifting lines (de-interlacing) here isn't really worthwhile unless
       we are doing colour correction as it is a processing overhead.
       Shifting while saving the scan isn't an overhead as we are
@@ -594,7 +570,7 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
       file as the file writing code doesn't wait for the shift so the
       result is indeterminate.
 */
-  iLineEnts = s->rBI.dwLineBytes / ((byBitsPerSample + 7) >> 3);
+  iLineEnts = s->rBI.dwLineBytes / ((pBI->byBitsPerSample + 7) >> 3);
   iShift = iShift2 = 0;
 /*//if (s->rBI.wLPI ==  160) iShift = 0;*/
   if (s->rBI.wLPI ==  500) iShift = 1;
@@ -629,6 +605,189 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
   iUnderflows = iOverflows = 0;
   iWorstUnder = iWorstIndex = iWorstLine = 0;
   iLimit = 65535;
+
+  /* This is left over from Fs4000.cpp.  But we can put a loop in here for now
+   * and push out status updates during deinterlacing if it takes a long time */
+  dwMaxPerLoop = pBI->dwLineBytes * 16; /* max data per loop (ensure */
+  /*dwMaxPerLoop = pBI->dwBytesRead; -- all at once */
+
+  iCol = 0;
+  iColour = 0;
+  /* This reduces the data in place. Each pass through the loop is reading from
+   * later in memory and writing earlier... */    
+  do {
+    /* Used for disk write ... BYTE* pNext = (BYTE*)pBI->pBuf + dwBytesDone; */
+
+    dwToDo = dwMaxPerLoop;
+    if (dwToDo > (pBI->dwBytesRead - dwBytesDone)) 
+      dwToDo = pBI->dwBytesRead - dwBytesDone;
+
+    DEBUG( s, "[Deinterlace] Input from byte %9u to %9u; Output Position %u\n", dwBytesDone, dwBytesDone+dwToDo-1, dwSamples);
+
+    dwBytesDone += dwToDo;                      /* premature update */
+    if (pBI->byBitsPerSample > 8)
+    {
+      /* Here we have 14- or 16-bit data */
+      /* So the number of words to process is 1/2 the number of bytes ... */
+      dwToDo >>= 1;
+      for ( ; dwToDo--; dwSamples++)            /* for each sample */
+      {
+        int iSample = pwBuf [dwSamples];
+        if (s->iInMode == 14)                    /* change 14-bit to 16-bit */
+          iSample <<= 2;
+        if ((WORD) iSample < pBI->wMin)
+          pBI->wMin = iSample;
+        if ((WORD) iSample > pBI->wMax)
+          pBI->wMax = iSample;
+        qwSum += iSample;
+        if (bCorrectSamples && (iCol >= s->iMargin))   /* if post margin */ /* TODO init iMargin */
+        {
+          iSample += s->rCal [iCol].iOffset;     /* add offset for sample */ /* TODO init rCal */
+          if (iSample < 0)
+          {
+            if (iSample < iWorstUnder)
+            {
+              iWorstUnder = iSample;
+              iWorstIndex = iCol;
+              iWorstLine  = iLine;
+            }
+            iSample = 0;
+            iUnderflows++;
+          } else {
+            iSample *= s->rCal [iCol].iMult;     /* *= factor */
+            iSample += 8192;                    /* for rounding */
+            iSample >>= 14;                     /* /= 16384 */
+            iScale = s->iBoost [iColour];
+            if (iScale > 256)                   /* if extra boost */
+            {
+              iSample *= iScale;
+              iSample >>= 8;
+            }
+            if (iSample > iLimit)
+            {
+              iSample = iLimit;
+              iOverflows++;
+            }
+          }
+        } /* endif correct samples */
+        iIndex = dwSamples + iOff [iColour];
+        if (iIndex >= 0)
+          pwBuf [iIndex] = iSample;
+        if (++iCol == iLineEnts)                /* EOL ? */
+        {
+          iCol = 0;
+          iLine++;
+        }
+        if (++iColour == 3)
+          iColour = 0;
+      } /* end for */
+    } else {                                        
+      /* 8-bit input */
+      for ( ; dwToDo--; dwSamples++)
+      {
+        int iSample = pbBuf [dwSamples];
+        if ((WORD) iSample < pBI->wMin)
+          pBI->wMin = iSample;
+        if ((WORD) iSample > pBI->wMax)
+          pBI->wMax = iSample;
+        qwSum += iSample;
+        iIndex = dwSamples + iOff [iColour];    /* slow code */
+        if (iIndex >= 0)                        /* generated */
+          pbBuf [iIndex] = iSample;             /* here !!! */
+        if (++iCol == iLineEnts)                /* EOL ? */
+        {
+          iCol = 0;
+          iLine++;
+        }
+        if (++iColour == 3)
+          iColour = 0;
+      }
+    }
+
+    iIndex = iLine - iShift2;
+    if (iIndex > 0)
+      pBI->dwLinesDone = iIndex;
+  } while (dwBytesDone < pBI->dwBytesRead);
+
+  DEBUG( s, "[Deinterlace] dwBytesDone=%u, dwSamples=%u\n", dwBytesDone, dwSamples);
+
+
+  if (iUnderflows)                              /* common error */
+  {
+    fs4k_Warning(s,  "Underflows = %d (worst = %d at %d %s on line %d)\r\n",
+                   iUnderflows, iWorstUnder,
+                   (iWorstIndex - s->iMargin) / 3,
+                   (iWorstIndex % 3 == 0) ? "red" :
+                   (iWorstIndex % 3 == 1) ? "green" : "blue",
+                   iWorstLine);
+  }
+
+  if (iOverflows)                               /* common error */
+  {
+    fs4k_Warning (s, "Overflows = %d\r\n", iOverflows);
+  }
+}
+
+/** 
+ * Read scan data
+ *
+ * This routine starts the background reads and processes
+ * the scan data as required.
+ * @todo Currently we dont spawn a separate thread to do the reading
+ *       Fs4000.cpp used a separate thread to read from the USB
+ *       so that the shifting and saling could be done concurrently.
+ *       We will come back and implement threading later after everything works 
+ *       in the slow lane first.
+ *
+ * Each scan line goes from the bottom up.
+ * For a thumbnail the first line is the leftmost.
+ * For a forward scan the first line is the rightmost.
+ * For a reverse scan the first line is the leftmost.
+ *
+ * Like most of these functions, this is not re-entrant:
+ * it will clobber s->rBI, for example, and change fs4000_debug during its lifetime
+ *
+ * 
+ * @param s Scanner data
+ * @param bySamplesPerPixel Samples per pixel, typ. 3
+ * @param byBitsPerSample Bits per pixel, typ. 14
+ * @param bCorrectSamples Fix negative samples if 'post margin', typ FALSE
+ * @param iLPI ...?
+ * @param dumpFileName Dump file filename path
+ */
+static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
+                         BYTE byBitsPerSample, BOOL bCorrectSamples,
+                         int iLPI, const char *dumpFileName)
+{
+  const char *fault = NULL;
+
+  DEBUG( s, "[ReadScan] samplesPerPixel=%d, bitsPerSample=%d, applyCal=%d, LPI=%d dump=%s\n", bySamplesPerPixel, byBitsPerSample, bCorrectSamples, iLPI, dumpFileName);
+
+  fs4k_FreeBuf (&s->rBI);
+
+  /* To avoid overloading with messages, temporarily change the debug level */
+  fs4k_PushDebug(s, 1/*0*/);
+
+  if ((s->lastError=fs4000_get_data_status (&s->rBI.dwLines, &s->rBI.dwLineBytes)))
+  {
+    fault = "Failed to acquire frame buffer size from scanner.";
+  } 
+  else if (fs4k_AllocBuf (&s->rBI, bySamplesPerPixel, byBitsPerSample))
+  {
+    fault = "Unable to allocate memory for frame.";
+  }
+  if (fault) {
+    fs4k_PopDebug(s);
+    fs4000_cancel ();  /* AMM Q. Is this the correct place to do this? */
+    fs4k_Fatal(s, fault);
+    /* ReturnCode = RC_SW_ABORT; AMM Q. Mixing of presentation layer? */
+    return -1;
+  }
+
+  s->rBI.wLPI = iLPI;
+  s->rBI.bySetFrame = s->iFrame;
+  s->rBI.byLeftToRight = (s->rBI.bySetFrame & 0x01);
+
   
   /* At this point the Windows version made a thread to read the USB
    * and then proceeded to concurrently do shifting and scaling
@@ -637,6 +796,19 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
    */
   
   fs4k_ReadScanFromScanner( s, &s->rBI);
+  fs4k_Deinterlace(s, &s->rBI, bCorrectSamples);
+
+  if (dumpFileName) {
+    FILE *f = fopen( dumpFileName, "wb");
+    if (!f) { 
+      fs4k_Warning( s, "Failed to open dump file '%s': %s\n", dumpFileName, strerror(errno));
+    } else {
+      if (1 != fwrite( s->rBI.pBuf, s->rBI.dwBytesRead, 1, f)) {
+        fs4k_Warning( s, "Failed to write %u bytes to dump file '%s': %s\n", s->rBI.dwBytesRead, dumpFileName, strerror(errno));
+      }
+      fclose(f);
+    }
+  }
 
   fs4k_PopDebug(s);
   return 0;
@@ -674,7 +846,7 @@ int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp)
               fs4000_set_lamp (0, 0);
               return fs4k_release(s, -1);
   }
-
+#define ENABLE_LAMP 
 #ifdef ENABLE_LAMP /* off for now so we dont burn it out */
   fs4k_LampOn (s, 15);                             /* lamp on for 15 secs min so it properly warms up */
 #endif
@@ -708,148 +880,91 @@ int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp)
                     0,                            /*  UINT4 x_upper_left, */
                     0,                            /*  UINT4 y_upper_left, */
                     4000,                         /*  UINT4 width, */
-                    64,                           /*  UINT4 height, */ /* TODO was 5904, using 16 for test speed */
+                    5904,                           /*  UINT4 height, */ /* TODO was 5904, using 16 for test speed */
                     fs4k_WBPS (s));               /*  BYTE bits_per_pixel_code */
   if (fs4k_Halt (s)) return fs4k_release(s, -1);
 
   fs4k_NewsStep (s, "Reading");
   fs4000_scan ();
   
-  fs4k_ReadScan(s, 3, fs4k_WBPS (s), TRUE, 4000, "/dev/null"); 
+  fs4k_ReadScan(s, 3, fs4k_WBPS (s), FALSE/*TRUE in Fs4000.cpp*/, 4000, "/tmp/fs4000.rgb"); 
   
   fs4k_NewsStep (s, "Done");
 
   fs4k_FreeBuf (&s->rBI); /* For now ... */
 
   return fs4k_release(s, 0);
-
-
-#ifdef FIXME
-
-  iSaveSpeed = g.iSpeed;                        // save globals
-  iSaveShutter [0] = g.iShutter [0];
-  iSaveShutter [1] = g.iShutter [1];
-  iSaveShutter [2] = g.iShutter [2];
-
-  fs4000_reserve_unit ();
-  fs4000_control_led (2);
-  fs4000_test_unit_ready ();
-  fs4k_GetFilmStatus ();
-  switch (g.rFS.byHolderType)
-    {
-    case 1:     if (iFrame > 5)
-                  goto release;
-                iOffset = iNegOff [iFrame];
-                break;
-
-    case 2:     if (iFrame > 3)
-                  goto release;
-                iOffset = iPosOff [iFrame];
-                break;
-
-    default:    spout ("No film holder\r\n");
-                fs4000_set_lamp (0, 0);
-                goto release;
-    }
-
-  fs4k_LampOn (15);                             // lamp on for 15 secs min
-  if (FS4_Halt ()) goto release;
-
-  fs4k_SetFrame (0);                            // may help home func below
-  fs4000_move_position (0, 0, 0);               // carriage home
-  fs4000_move_position (1, 4, iOffset - 236);   // focus position
-  if (FS4_Halt ()) goto release;
-
-  fs4k_NewsStep ("Focussing");
-  fs4k_SetScanMode (4, fs4k_U24 ());            // mid exposure
-  fs4000_execute_afae (1, 0, 0, 0, 500, 3500);
-  if (FS4_Halt ()) goto release;
-
-  fs4000_move_position (1, 4, iOffset);
-
-  iSetFrame = 0;                                // R2L
-  if (bAutoExp)                                 // exposure pre-pass
-    {
-    fs4k_SetFrame ( 8);                         // R2L, no return after
-    fs4k_SetWindow (4000,                       // UINT2 x_res,
-                    500,                        // UINT2 y_res,
-                    0,                          // UINT4 x_upper_left,
-                    0,                          // UINT4 y_upper_left,
-                    4000,                       // UINT4 width,
-                    5904,                       // UINT4 height,
-                    fs4k_WBPS ());              // BYTE bits_per_pixel);
-    g.iSpeed = g.iAutoExp;
-    fs4k_SetScanMode (g.iSpeed, fs4k_U24 ());
-    if (FS4_Halt ()) goto release;
-
-    fs4k_NewsStep ("Exposure pass");
-    fs4000_scan ();
-    if (fs4k_ReadScan (&g.rScan, 3, fs4k_WBPS (), TRUE, 500))
-      goto release;
-    if (FS4_Halt ()) goto release;
-    fs4k_NewsStep ("Calc exposure");
-    fs4k_CalcSpeed (&g.rScan);
-    iSetFrame = 1;                              // L2R
-    }
-
-#if GET_DIG_OFFS_AT_SCAN
-
-  fs4k_LampOff (1);
-  if (fs4k_TuneDOffsets (g.iSpeed, 100)) goto release;
-  fs4k_LampOn  (3);
-
-#endif
-
-  fs4k_SetFrame (iSetFrame);                    // L2R or R2L
-
-  wsprintf (msg, "Frame %d, speed = %d, red = %d, green = %d, blue = %d\r\n",
-                 iFrame + 1, g.iSpeed, g.iShutter [0], g.iShutter [1], g.iShutter [2]);
-  spout ();
-
-  fs4k_SetScanMode (g.iSpeed, fs4k_U24 ());
-  fs4k_SetWindow (4000,                         // UINT2 x_res,
-                  4000,                         // UINT2 y_res,
-                  0,                            // UINT4 x_upper_left,
-                  0,                            // UINT4 y_upper_left,
-                  4000,                         // UINT4 width,
-                  5904,                         // UINT4 height,
-                  fs4k_WBPS ());                // BYTE bits_per_pixel);
-  if (FS4_Halt ()) goto release;
-
-  GetNextSpareName (szRawFID, g.szRawFID);
-  pRawFID = szRawFID;
-
-  fs4k_NewsStep ("Reading");
-  fs4000_scan ();
-
-  if (!(g.bSaveRaw || g.bUseHelper))
-    pRawFID = NULL;
-  if (fs4k_ReadScan (&g.rScan, 3, fs4k_WBPS (), TRUE, 4000, pRawFID) == 0)
-    {
-    fs4k_NewsStep ("Processing");
-    if (g.bMakeTiff)
-      if (g.bUseHelper)
-        {
-        fs4k_FreeBuf (&g.rScan);
-        fs4k_StartMake (pTifFID, szRawFID);
-        }
-      else
-        fs4k_SaveScan (pTifFID, &g.rScan, 4000);
-    }
-  FS4_Halt ();
-
-release:
-  fs4k_SetFrame        (0);
-  fs4000_move_position (0, 0, 0);
-  fs4000_control_led   (0);
-  fs4000_release_unit  ();
-
-  g.iSpeed = iSaveSpeed;                        // restore globals
-  g.iShutter [0] = iSaveShutter [0];
-  g.iShutter [1] = iSaveShutter [1];
-  g.iShutter [2] = iSaveShutter [2];
-
-  fs4k_NewsDone      ();
-  return AbortWanted ();
-#endif  
 }
+
+void fs4k_InitData(struct scanner *s)
+{
+  s->iAGain    [0]       =   47;
+  s->iAGain    [1]       =   36;
+  s->iAGain    [2]       =   36;
+  s->iAOffset  [0]       =  -25;
+  s->iAOffset  [1]       =   -8;
+  s->iAOffset  [2]       =   -5;
+  s->iShutter  [0]       =  750;
+  s->iShutter  [1]       =  352;
+  s->iShutter  [2]       =  235;
+  s->iInMode             =   14;
+  s->iBoost    [0]       =  256;
+  s->iBoost    [1]       =  256;
+  s->iBoost    [2]       =  256;
+  s->iSpeed              =    2;
+  s->iFrame              =    0;
+  s->ifs4000_debug       =    0;
+  s->iMaxShutter         =  890;
+  s->iAutoExp            =    2;
+  s->iMargin             =  120; /* 0 = no margin (stuffs black level !!!!) */
+  
+  fs4k_InitCalArray(s);
+
+}
+
+int fs4k_InitCommands(struct scanner *s)
+{
+  fs4000_cancel         ();
+  fs4k_SetInMode        (s, 14);
+
+  while (fs4000_test_unit_ready ())
+    if (fs4k_checkAbort(s))
+      return -1;
+
+  if ((s->lastError = fs4000_get_film_status_rec (&s->rFS))) {
+    fs4k_Warning(s, "Error on BOJ GetFilmStatus");
+    return -1;
+  }
+
+  ;
+  if ((s->lastError = fs4000_get_lamp_rec (&s->rLI))) {
+    fs4k_Warning(s, "Error on BOJ GetLampInfo");
+    return -1;
+  }
+
+  if ((s->lastError = fs4000_get_scan_mode_rec (&s->rSMI.scsi))) {
+    fs4k_Warning(s, "Error on BOJ GetScanModeInfo");
+    return -1;
+  }
+  memset(&s->rSMI.control.unknown1b [2], 0, 9);
+  s->rSMI.control.bySpeed      = s->iSpeed;
+  s->rSMI.control.bySampleMods = 0;
+  s->rSMI.control.unknown2a    = 0;
+  s->rSMI.control.byImageMods  = 0;
+  if ((s->lastError = fs4000_put_scan_mode_rec (&s->rSMI.scsi))) {
+    fs4k_Warning(s, "Error on BOJ PutScanModeInfo");
+    return -1;
+  }
+
+  if ((s->lastError = fs4000_get_window_rec (&s->rWI))) {
+    fs4k_Warning(s, "Error on BOJ GetWindowInfo");
+    return -1;
+  }
+  if ((s->lastError = fs4000_put_window_rec((FS4000_SET_WINDOW_DATA_OUT*)&s->rWI)))
+  {
+    fs4k_Warning(s, "Error on BOJ PutWindowInfo");
+    return -1;
+  }
+  return 0;
+}
+

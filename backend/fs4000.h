@@ -55,6 +55,7 @@
 #define BYTE SANE_Byte
 #define BOOL SANE_Bool
 #define TRUE SANE_TRUE
+#define FALSE SANE_FALSE
 
 #include "../include/_stdint.h"
 
