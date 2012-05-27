@@ -47,7 +47,7 @@
 
 /** SANE USB Device ID for the scanner for subsequent operations by 
     fs4000_usb_scsi_exec */
-extern SANE_Int g_saneUsbDn;
+extern SANE_Int g_saneFs4000UsbDn;
 
 /** Perform FS4000 SCSI command over USB using the SANE libusb wrapper.
  *

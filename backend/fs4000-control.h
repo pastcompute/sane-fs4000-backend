@@ -61,11 +61,12 @@ struct scanner;
 
 extern int fs4k_GetLastError(const struct scanner* s); 
 
-extern void fs4k_init(struct scanner **s);
+extern struct scanner *fs4k_init(struct scanner **s, const char *devname);
 extern void fs4k_destroy(struct scanner *s);
 extern void fs4k_InitData(struct scanner *s);
 extern int fs4k_InitCommands(struct scanner *s);
 
+extern const char *fs4k_devname(struct scanner *s);
 
 /** 
  * Set a function for reporting progress messages that would be displayed

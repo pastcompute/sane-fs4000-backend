@@ -158,6 +158,8 @@ FS4K_CAL_ENT;
 /** Structure to hold all state information for scanner */
 struct scanner
 {
+   const char *devname;
+
   /* Latest state */
   SANE_Int lastError;
   
@@ -311,16 +313,27 @@ int fs4k_GetLastError(const struct scanner* s)
   return s->lastError;
 }
 
-void fs4k_init(struct scanner **s) 
+struct scanner *fs4k_init(struct scanner **s, const char *devname) 
 {
   *s = malloc(sizeof(struct scanner));
-  memset( *s, 0, sizeof(struct scanner));
+
+  if (*s) {
+    memset( *s, 0, sizeof(struct scanner));
+    (*s)->devname = devname;
+  }
+  return *s;
 }
 
 void fs4k_destroy(struct scanner *s) 
 {
   free(s);
 }
+
+const char *fs4k_devname(struct scanner *s)
+{
+  return s->devname;
+}
+
 
 void fs4k_SetFeedbackFunction( struct scanner *s, void (*f)(const char *))
 {

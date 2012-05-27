@@ -45,17 +45,17 @@ static SANE_Status sanei_fs4000_attach(SANE_String_Const devname)
     int er;
   printf("Found: %s\n", devname);
   /* Does this need a mutex? */
-  if (g_saneUsbDn == -1) {
+  if (g_saneFs4000UsbDn == -1) {
     printf("Opening: %s\n", devname);
-    if (SANE_STATUS_GOOD != (er=sanei_usb_open( devname, &g_saneUsbDn))) {
+    if (SANE_STATUS_GOOD != (er=sanei_usb_open( devname, &g_saneFs4000UsbDn))) {
       fprintf(stderr, "Failed to open! %d\n", er);
       return er;
     }
   } else {
-    fprintf(stderr, "Only one supported! %d\n", g_saneUsbDn);
+    fprintf(stderr, "Only one supported! %d\n", g_saneFs4000UsbDn);
     return SANE_STATUS_INVAL;
   }
-  printf("dn=%d\n", g_saneUsbDn);
+  printf("dn=%d\n", g_saneFs4000UsbDn);
 
   if (TRUE) {
     FS4000_INQUIRY_DATA_IN rLI;
@@ -103,11 +103,11 @@ int main(int argc, char*argv[])
 
 
   printf("searching...\n");
-  g_saneUsbDn = -1;
+  g_saneFs4000UsbDn = -1;
   sanei_usb_find_devices( 0x04a9, 0x3042, sanei_fs4000_attach);
   printf("searched.\n");
 
-  if (g_saneUsbDn == -1) { 
+  if (g_saneFs4000UsbDn == -1) { 
     printf("not found.\n");
     return 1;
   }
@@ -201,7 +201,7 @@ int main(int argc, char*argv[])
     }
   }
 
-  sanei_usb_close( g_saneUsbDn);
+  sanei_usb_close( g_saneFs4000UsbDn);
   
   return 0;
 }

@@ -58,7 +58,7 @@
 /* We currently only support one Scanner. To fix this would require
    propagating the ID of the scanner through fs4000-scsi.c/.h, maybe as some
    kind of user handle... */
-SANE_Int g_saneUsbDn = -1;
+SANE_Int g_saneFs4000UsbDn = -1;
 
 /* ------------------------------------------------------------------------- */
 SANE_Int
@@ -135,7 +135,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
       dwValue += pbyCmd [2];
   bInput = (mode_and_dir & SRB_DIR_IN) > 0;
 
-  er=fs4000_usb_do_request (g_saneUsbDn, dwValue, bInput, pdb, pdb_len);
+  er=fs4000_usb_do_request (g_saneFs4000UsbDn, dwValue, bInput, pdb, pdb_len);
   if (er==SANE_STATUS_IO_ERROR) {
     DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request IO Error");
     return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
@@ -148,7 +148,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
   if (*pbyCmd == 0x28)                          /* if read, get bulk data*/
   {
     dwBytes = save_pdb_len;
-    er = sanei_usb_read_bulk( g_saneUsbDn, save_pdb, &dwBytes);
+    er = sanei_usb_read_bulk( g_saneFs4000UsbDn, save_pdb, &dwBytes);
     if (er==SANE_STATUS_IO_ERROR) {
       DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk IO Error");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
@@ -167,7 +167,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
     }
   }
 
-  if (fs4000_usb_do_request (g_saneUsbDn, dwValueC5, SANE_TRUE, byStatPDB, 4))  /* get status*/
+  if (fs4000_usb_do_request (g_saneFs4000UsbDn, dwValueC5, SANE_TRUE, byStatPDB, 4))  /* get status*/
   {
     if (er==SANE_STATUS_IO_ERROR) {
       DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status IO Error");
@@ -191,7 +191,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
     const int maxx=14;
     char *buf = alloca(maxx*3+1);
     int x;
-    er = fs4000_usb_do_request (g_saneUsbDn, dwValue03, SANE_TRUE, bySensPDB, 14);   /* get sense*/
+    er = fs4000_usb_do_request (g_saneFs4000UsbDn, dwValue03, SANE_TRUE, bySensPDB, 14);   /* get sense*/
     for (x = 0; x < maxx; x++)
       snprintf (buf+x*3, (maxx-x)*3, " %02X", bySensPDB [x]);
     DBG (1, "fs4000_usb_scsi_exec: sense error: %s", buf);
