@@ -86,7 +86,7 @@ int main(int argc, char*argv[])
   printf("Scanning...\n");
   
   fs4k_SetInMode(s, 8); /* should be 8, 14 or 16 */
-  fs4k_Scan( s, 5, SANE_FALSE);
+  fs4k_Scan( s, 5, 0, 0, 4000, 5904, SANE_FALSE);
   /*convert  -size 4040x5904 -depth 8  /tmp/fs4000.rgb f.jpg*/
   printf("cleanup\n");
   
@@ -119,4 +119,11 @@ ENV{libsane_matched}=="yes", MODE="664", GROUP="scanner"
 
 */
 
+int fs4000_scsi_log( const char *msg, ...)
+{
+  va_list ap;
+  va_start(ap, msg);
+  vfprintf( stderr, msg, ap);
+  va_end(ap);
+}
 

@@ -86,7 +86,7 @@
 #include <string.h>
 
 #define MINOR_VERSION  0
-#define BUILD          1
+#define BUILD          2
 
 /* Why is this needed when the build scripts define it? */
 #define BACKEND_NAME   fs4000 
@@ -102,30 +102,82 @@
 #define D_VERBOSE 3
 #define D_TRACE   4
 
-#define FS4000_VENDOR 0x04a9
-#define FS4000_PRODUCT 0x3042
+/** FS4000 USB Vendor ID */
+#define FS4000_USB_VENDOR 0x04a9
+/** FS4000 USB Product ID */
+#define FS4000_USB_PRODUCT 0x3042
 
+/**
+ * Sane scanner options.
+ */
 enum FS4000_OPTION {
-  OPT_FIRST = 0,
-  OPT_PRODUCT,
-  OPT_NUM  /* last */
+  OPT_FIRST = 0,  /** Always 0 - always the first, required by SANE */
+  OPT_PRODUCT,    /** For diagnostics, returns the product string from device */
+  OPT_NUM         /** MUST BE LAST, is the number of optoin array elements */
 };
 
-/* A linked list for multiple Fs4000.  Currently though we can only
-   handle one, so this is moot for the time being */
+/** 
+ * A linked list to manage attached Fs4000.  
+ * This is moot for the time being though as only the first USB Fs4000 detected
+ * will be added to the list currently. 
+ */
 typedef struct fs4000_dev {
-  struct scanner* s;
-  struct fs4000_dev* next;
-  SANE_Device sane;
+  struct fs4000_dev* next;   /** Next list element, or NULL if last */
+  struct scanner* s;         /** fs4k scanner details structure, this is added
+                               * in sane_open() and removed in sane_close() */
+  SANE_Device sane;          /** Device handle allocated by SANE */
+  int state;                 /** 0 == not started, 1 == just scanned, 2 == return EOF from next sane_read() call */
+  DWORD frameSizeBytes;   /** Amount of data still to be returned from sane_read() */
+  SANE_Int readBytesToGo;    /** Amount of data still to be returned from sane_read() */
+  SANE_Byte* frameBuffer;
+  SANE_Bool cancelled;
+  
+  /** 
+   * Array of option descriptions. Although this will be the same for all
+   * scanner instances, the usual design pattern is to have this per device
+   * because some backends support multiple scanner types for which this may
+   * vary.
+   */
   SANE_Option_Descriptor opts[OPT_NUM];
+  /** Values for the options */
   Option_Value val[OPT_NUM];
 } fs4000_dev_t;
 
+static SANE_Option_Descriptor g_optFirst = {
+    SANE_NAME_NUM_OPTIONS,
+    SANE_TITLE_NUM_OPTIONS,
+    SANE_DESC_NUM_OPTIONS,
+    SANE_TYPE_INT,
+    SANE_UNIT_NONE,
+    sizeof (SANE_Word),
+    SANE_CAP_SOFT_DETECT,
+    SANE_CONSTRAINT_NONE,
+    {NULL}
+};
+
+static SANE_Option_Descriptor g_optProduct = {
+  "product",
+  SANE_I18N ("Product"),
+  SANE_I18N ("Product string detected from scanner."),
+  SANE_TYPE_STRING,
+  SANE_UNIT_NONE,
+  1, /* Update this in the copy, to the length... */
+  SANE_CAP_SOFT_DETECT | SANE_CAP_SOFT_SELECT,
+  SANE_CONSTRAINT_NONE,
+  {NULL}
+};
+  
+/** 
+ * Head of the list of attached devices
+ */
 static fs4000_dev_t* g_firstDevice = NULL;
 
+/** Helper to count number of devices in the list 
+ * @return Number of elements (devices attached)
+ */
 static int count_fs4000_dev(void)
 {
-  fs4000_dev_t *p = g_firstDevice;
+  const fs4000_dev_t *p = g_firstDevice;
   int n=0;
   while (p) {
     n++;
@@ -134,6 +186,7 @@ static int count_fs4000_dev(void)
   return n;
 }
 
+/** Helper to walk the list and print found devices to debug log */
 static void walk_fs4000_dev(void)
 {
   fs4000_dev_t *p = g_firstDevice;
@@ -143,6 +196,10 @@ static void walk_fs4000_dev(void)
   }
 }
 
+/** Helper to find the device element given a scanner structure 
+ * @param s fs4k scanner data
+ * @return Matching device
+ */
 static fs4000_dev_t *find_fs4000_dev(struct scanner* s)
 {
   fs4000_dev_t *p = g_firstDevice;
@@ -153,6 +210,14 @@ static fs4000_dev_t *find_fs4000_dev(struct scanner* s)
   return p;
 }
 
+/**
+ * Sane callback helper to attach a device to this backend
+ *
+ * @note Current architecture:
+ * This uses and release the fs4000 USB transport, and thus
+ * sets the global g_saneFs4000UsbDn. It is thus not re-entrant,
+ * and neither is it safe to use between sane_open() and sane_close()
+ */
 static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
 {
   fs4000_dev_t* dev;
@@ -162,18 +227,20 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
   
   DBG (D_INFO, "Possible Fs4000 USB device '%s'\n", devname);
   
+  /* FIXME remove this when we upgrade the fs4000_ library */
+  assert(g_saneFs4000UsbDn == -1); 
+
   if (g_saneFs4000UsbDn == -1) {
     if (SANE_STATUS_GOOD != (er=sanei_usb_open( devname, &dn))) {
       DBG (D_WARNING, "Could not open USB device '%s'.\n", devname);
       return er;
     }
   } else {
-    DBG (D_WARNING, "Only one Fs4000 is supported.\n");
+    DBG (D_WARNING, "Only one Fs4000 is supported, or .\n");
     return SANE_STATUS_UNSUPPORTED;
   }
 
-  /* Assume this does not have to be re-entrant code ... */
-  DBG (D_VERBOSE, "dn=%d\n", g_saneFs4000UsbDn);
+  DBG (D_VERBOSE, "USB dn=%d\n", g_saneFs4000UsbDn);
   assert( g_saneFs4000UsbDn == -1);
   assert( dn >= 0);
   g_saneFs4000UsbDn = dn;
@@ -185,12 +252,18 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
     return SANE_STATUS_IO_ERROR;
   }
   
-  DBG (D_INFO, "INQ vendor=%8s product=%16s release=%4s\n", rLI.vendor_id, rLI.product_id, rLI.rev_level);
+  DBG (D_INFO, "INQ vendor=%8s product=%16s release=%4s\n", 
+                rLI.vendor_id, rLI.product_id, rLI.rev_level);
 
-  if (strncmp( "CANON ", (char*)rLI.vendor_id, 6) || strncmp( "IX-40015G ", (char*)rLI.product_id, 10))
+  if (strncmp( "CANON ", (char*)rLI.vendor_id, 6) || 
+      strncmp( "IX-40015G ", (char*)rLI.product_id, 10))
   {
-    DBG (D_WARNING, "INQ result: Unexpected vendor / product string '%s, %s'; continuing anyway...\n", rLI.vendor_id, rLI.product_id);
+    DBG (D_WARNING, "INQ result: Unexpected vendor / product string '%s, %s';"
+                    " continuing anyway...\n", rLI.vendor_id, rLI.product_id);
   }
+
+  /* FIXME Currently we only support one Fs4000 */
+  assert( g_firstDevice == NULL);
 
   /* Create a list node for this device */
   dev = calloc(1, sizeof(fs4000_dev_t));
@@ -199,10 +272,6 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
     sanei_usb_close( dn);
     return SANE_STATUS_NO_MEM;
   }
-
-  /* Later, when adding support for multiple Fs4000, this will need to update */
-  assert( g_firstDevice == NULL);
-
   dev->next = g_firstDevice;
   g_firstDevice = dev;
 
@@ -211,16 +280,18 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
   dev->sane.vendor = "CANON";
   dev->sane.model = strndup (rLI.product_id, 9);
   dev->sane.type = "slide scanner";
+  dev->state = -1;
+  dev->frameBuffer = NULL;
+  dev->frameSizeBytes = 0;
   
   if (DBG_LEVEL > 1)
     walk_fs4000_dev();
 
   /* Dont keep device open (wait until we are ready to scan) */
-  g_saneFs4000UsbDn = -1;
   sanei_usb_close( dn);
+  g_saneFs4000UsbDn = -1;
   
   return SANE_STATUS_GOOD;
-
 }
 
 /* ------------------------------------------------------------------------- */
@@ -246,6 +317,13 @@ sane_init (SANE_Int * version_code, SANE_Auth_Callback UNUSEDARG authorize)
   DBG (D_INFO, "Canon Fs4000 backend version %d.%d.%d\n",
                    SANE_CURRENT_MAJOR, MINOR_VERSION, BUILD);
 
+#ifdef HAVE_LIBUSB_1_0
+  DBG (D_VERBOSE, "backend built with libusb-1.0\n");
+#endif
+#ifdef HAVE_LIBUSB
+  DBG (D_VERBOSE, "backend built with libusb\n");
+#endif
+
   if (version_code != NULL)
   {
       *version_code =
@@ -259,12 +337,18 @@ sane_init (SANE_Int * version_code, SANE_Auth_Callback UNUSEDARG authorize)
     fs4000_debug = atoi(pEnv);
   
   /* Enable USB transport layer */
+  sanei_usb_init ();
   fs4000_do_scsi    = fs4000_usb_scsi_exec;
   g_saneFs4000UsbDn = -1;
-  
-  sanei_usb_find_devices( FS4000_VENDOR, FS4000_PRODUCT, fs4000_usb_sane_attach);
+
+  /* This will call the sane_attach function and build the list */
+  assert (g_firstDevice == NULL);
+  sanei_usb_find_devices( FS4000_USB_VENDOR, FS4000_USB_PRODUCT, 
+                          fs4000_usb_sane_attach);
+                          
   if (g_firstDevice == NULL) { 
-    DBG (D_INFO, "Found no matching USB devices (%.4x:%.4x)\n", FS4000_VENDOR, FS4000_PRODUCT);
+    DBG (D_INFO, "Found no matching USB devices (%.4x:%.4x)\n", 
+                  FS4000_USB_VENDOR, FS4000_USB_PRODUCT);
   }
 
   return SANE_STATUS_GOOD;
@@ -276,17 +360,18 @@ sane_exit (void)
 {
   DBG (D_VERBOSE, "sane_exit()\n");
   
+  /* Release all attached devices */
   while (g_firstDevice) {
-    fs4000_dev_t *p;
-    p = g_firstDevice;
+    fs4000_dev_t *p = g_firstDevice;
     DBG (D_VERBOSE, "sane_exit() : destroy : %s\n", p->sane.name);
+    assert( p->s == NULL);  /* should not happen if sane_close() properly called */
     fs4k_destroy(p->s);
     g_firstDevice = p->next;
     free(p);
   }
   
-  /* TODO Later, when adding support for multiple Fs4000, this needs to
-     be updated accordingly */  
+  /* We should not get here between sane_open() and sane_close() */
+  assert( g_saneFs4000UsbDn == -1);
   if (g_saneFs4000UsbDn == -1) return;
   sanei_usb_close(g_saneFs4000UsbDn);
   g_saneFs4000UsbDn = -1;
@@ -327,11 +412,13 @@ sane_get_devices (const SANE_Device *** device_list, SANE_Bool UNUSEDARG local_o
   return SANE_STATUS_GOOD;
 }
 
+/** fs4k API call for reporting feedback such as progress messages */
 static void fs4000_sane_feedback(const char *text)
 {
   DBG( 1, "[FEEDBACK] %s\n", text);
 }
 
+/** fs4k API call for testing if we should abort the current operation */
 static int fs4000_sane_check_abort(void)
 {
   return 0;
@@ -362,6 +449,7 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
     return SANE_STATUS_INVAL;
     
   /* No-one should have the USB device currently... */
+  assert( g_saneFs4000UsbDn == -1);
   if (g_saneFs4000UsbDn != -1) return SANE_STATUS_INVAL;
     
   /* No-one should be linked to the fs4k lib yet */
@@ -375,7 +463,7 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
     return SANE_STATUS_NO_MEM;
   }
   
-  /* Open the USB device again */
+  /* Open the USB device; from here, this device will own the global USB DN */
   if (SANE_STATUS_GOOD != sanei_usb_open( devicename, &g_saneFs4000UsbDn)) {
     DBG (D_WARNING, "Could not open USB device '%s'.\n", devicename);
     fs4k_destroy(s);
@@ -384,32 +472,35 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
   assert( g_saneFs4000UsbDn != -1);
 
   dev->s = s;
+  dev->state = 0;
+  dev->cancelled = SANE_FALSE;
   *handle = s;
 
-  for (i = 0; i < OPT_NUM; i++)
-  {
-    dev->opts[i].size = sizeof (SANE_Word);
-    dev->opts[i].cap = SANE_CAP_SOFT_SELECT | SANE_CAP_SOFT_DETECT;
-  }
+  /* The first optoin is read-only and  returns the number of options available 
+     It should be the first option in the options array */
 
-  dev->opts[OPT_FIRST].title = SANE_TITLE_NUM_OPTIONS;
-  dev->opts[OPT_FIRST].desc = SANE_DESC_NUM_OPTIONS;
-  dev->opts[OPT_FIRST].type = SANE_TYPE_INT;
-  dev->opts[OPT_FIRST].cap = SANE_CAP_SOFT_DETECT;
+  dev->opts[OPT_FIRST] = g_optFirst;
   dev->val[OPT_FIRST].w = OPT_NUM;
-  
-  dev->opts[OPT_PRODUCT].name = "product";
-  dev->opts[OPT_PRODUCT].title = "Product";
-  dev->opts[OPT_PRODUCT].desc = "Detected Product string";
-  dev->opts[OPT_PRODUCT].type = SANE_TYPE_STRING;
-  dev->opts[OPT_PRODUCT].cap = SANE_CAP_SOFT_DETECT;
-  dev->opts[OPT_PRODUCT].constraint_type = SANE_CONSTRAINT_NONE;
+
+  dev->opts[OPT_PRODUCT] = g_optProduct;
   dev->opts[OPT_PRODUCT].size = strlen( dev->sane.model)+1;
   dev->val[OPT_PRODUCT].s = strdup(dev->sane.model);
   
   fs4k_InitData(s);
   fs4k_SetFeedbackFunction( s, fs4000_sane_feedback);
   fs4k_SetAbortFunction( s, fs4000_sane_check_abort);
+
+  /* preinitialise the scanner to a default sane state ready for scanning. */
+  if (fs4k_InitCommands(s)) {
+    DBG (D_WARNING, "Unable to initialise scanner: code=%d.\n", fs4k_GetLastError(s));
+    fs4k_destroy(s);
+    return SANE_STATUS_IO_ERROR;
+  }
+
+  /* For now make it 8-bit for speed. This needs to be converted into an option. */  
+  fs4k_SetInMode(s, 8); /* should be 8, 14 or 16 */
+
+
 
   return SANE_STATUS_GOOD;
 }
@@ -419,9 +510,12 @@ void
 sane_close (SANE_Handle handle)
 {
   struct scanner *s = (struct scanner *)handle;
-  fs4000_dev_t* dev;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
 
   DBG (D_VERBOSE, "sane_close '%s'\n", fs4k_devname(s));
+  assert( g_saneFs4000UsbDn != -1);
+  assert( dev->state == -1 || dev->state == 0);
+
   if (g_saneFs4000UsbDn != -1) {
     sanei_usb_close(g_saneFs4000UsbDn);
   }
@@ -458,6 +552,21 @@ sane_control_option (SANE_Handle handle, SANE_Int option,
 		     SANE_Action action, void *val,
 		     SANE_Int * info)
 {
+  struct scanner *s = (struct scanner *)handle;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
+
+  switch (option) {
+  case OPT_FIRST:
+    if (action != SANE_ACTION_GET_VALUE) return SANE_STATUS_UNSUPPORTED;
+    *(SANE_Word*)val = OPT_NUM;
+    break;
+  case OPT_PRODUCT:
+    if (action != SANE_ACTION_GET_VALUE) return SANE_STATUS_UNSUPPORTED;
+    strcpy (val, dev->val[option].s);
+    break;
+  default:    
+    return SANE_STATUS_INVAL;
+  }
   return SANE_STATUS_GOOD;
 }
 
@@ -465,6 +574,21 @@ sane_control_option (SANE_Handle handle, SANE_Int option,
 SANE_Status
 sane_get_parameters (SANE_Handle handle, SANE_Parameters * params)
 {
+  struct scanner *s = (struct scanner *)handle;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
+
+  /* Currently we assume this is only called after scan_start is called... */
+  params->format = SANE_FRAME_RGB;
+  params->last_frame = SANE_TRUE;
+  
+  if (fs4k_GetLastFrameInfo( s, &params->bytes_per_line,
+        &params->lines,
+        &params->pixels_per_line,
+        &params->depth)) {
+    return SANE_STATUS_INVAL;
+  }
+  
+  
   return SANE_STATUS_GOOD;
 }
 
@@ -472,7 +596,48 @@ sane_get_parameters (SANE_Handle handle, SANE_Parameters * params)
 SANE_Status
 sane_start (SANE_Handle handle)
 {
-  return SANE_STATUS_DEVICE_BUSY;
+  struct scanner *s = (struct scanner *)handle;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
+  int frameIndex;
+  FS4000_GET_FILM_STATUS_DATA_IN_28 fs;
+  
+  /* Initial naive approach: do all the scanning here.
+   * Then return the buffer through read.
+   * TODO: Split fs4k_Read() up so we can initiate from here
+   * then return bit by bit it sane_read(), that would make things 
+   * much more efficient.
+   */
+
+  DBG (D_VERBOSE, "sane_start '%s' state=%d cancelled=%d\n", fs4k_devname(s), dev->state, dev->cancelled);
+  if (dev->state < 0) return SANE_STATUS_INVAL;
+  if (dev->state > 0) return SANE_STATUS_DEVICE_BUSY;
+  if (dev->cancelled) return SANE_STATUS_CANCELLED;
+
+
+  if (fs4000_get_film_status_rec (&fs)) {
+    DBG( D_WARNING, "Unable to retrieve film status\n");
+    return SANE_STATUS_IO_ERROR;
+  }
+  if (fs.film_holder_type == 0) {
+    /* holder is out... */
+    return SANE_STATUS_NO_DOCS;
+  }
+
+
+  /* TODO: read frame index from options */
+  frameIndex = 5;
+
+  fs4k_Scan( s, frameIndex, 500, 500, 500, 500, SANE_FALSE);
+  
+  if (fs4k_GetLastError(s)) {
+    fs4k_FreeResult(s);
+    return SANE_STATUS_IO_ERROR;
+  }
+  
+  dev->state = 1;
+  dev->frameSizeBytes = dev->readBytesToGo = fs4k_GetScanResult(s, &dev->frameBuffer);
+
+  return SANE_STATUS_GOOD;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -480,26 +645,98 @@ SANE_Status
 sane_read (SANE_Handle handle, SANE_Byte * buf,
 	   SANE_Int max_len, SANE_Int * len)
 {
-  return SANE_STATUS_IO_ERROR;
+  struct scanner *s = (struct scanner *)handle;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
+  size_t framePos;
+  BYTE* checkBuffer = NULL;
+  DWORD checkBytes;
+
+  DBG (D_VERBOSE, "sane_read '%s' state=%d remain=%u\n", fs4k_devname(s), dev->state, dev->readBytesToGo);
+
+  if (dev->cancelled) { if (len) *len = 0; return SANE_STATUS_CANCELLED; }
+  if (!dev->frameBuffer) { if (len) *len = 0; return SANE_STATUS_EOF; }
+  if (!(dev->state == 1 || dev->state == 2)) { 
+    DBG (D_WARNING, "sane_read called in invalid state.\n");
+    if (len) *len = 0; 
+    return SANE_STATUS_EOF; 
+  }
+
+  checkBytes = fs4k_GetScanResult(s, &checkBuffer);
+  if (!(checkBytes==dev->frameSizeBytes && checkBuffer == dev->frameBuffer)) {
+    /* Should never happen! */
+    DBG (D_WARNING, "sane_read  buffer size mismatch! expect %p:%u got %p:%u\n", 
+        dev->frameBuffer, dev->frameSizeBytes, checkBuffer, checkBytes);
+    if (len) *len = 0; 
+    return SANE_STATUS_EOF;
+  }
+  
+  switch (dev->state) {
+  case 1:
+    if (dev->readBytesToGo < max_len) {
+      if (len) *len = dev->readBytesToGo;
+    } else {
+      if (len) *len = max_len;
+    }
+    framePos = dev->frameSizeBytes - dev->readBytesToGo;
+    memcpy( buf, dev->frameBuffer + framePos, *len);
+    dev->readBytesToGo -= *len;
+    assert( dev->readBytesToGo >= 0);
+    if (dev->readBytesToGo == 0)
+      dev->state = 2;
+    return SANE_STATUS_GOOD;
+  case 2:
+  default:
+    fs4k_FreeResult(s);
+    DBG (D_VERBOSE, "sane_read '%s' finished\n", fs4k_devname(s));
+    dev->state = 0;
+    if (len) *len = 0;
+    return SANE_STATUS_EOF;
+  }  
 }
 
 /* ------------------------------------------------------------------------- */
 void
 sane_cancel (SANE_Handle handle)
 {
+  struct scanner *s = (struct scanner *)handle;
+  fs4000_dev_t* dev = find_fs4000_dev(s);
+
+  dev->cancelled = SANE_TRUE;
+
+  fs4k_FreeResult(s);
+
+  dev->state = 0;
+  dev->frameBuffer = NULL;
+  dev->frameSizeBytes = 0;
+  dev->readBytesToGo = 0;
+
+  fs4000_control_led (0);
+  fs4000_release_unit  ();
+  fs4000_move_position (0, 0, 0); /* carriage home, home */
+  fs4000_move_position (1, 0, 0); /*    fs4k_MoveHolder (0);*/
 }
 
 /* ------------------------------------------------------------------------- */
 SANE_Status
-sane_set_io_mode (SANE_Handle handle, SANE_Bool non_blocking)
+sane_set_io_mode (SANE_Handle UNUSEDARG handle, SANE_Bool UNUSEDARG non_blocking)
 {
-  return SANE_STATUS_GOOD;
+  return SANE_STATUS_UNSUPPORTED;
 }
 
 /* ------------------------------------------------------------------------- */
 SANE_Status
-sane_get_select_fd (SANE_Handle handle, SANE_Int * fd)
+sane_get_select_fd (SANE_Handle UNUSEDARG handle, SANE_Int UNUSEDARG * fd)
 {
-  return SANE_STATUS_INVAL;
+  return SANE_STATUS_UNSUPPORTED;
+}
+
+int fs4000_scsi_log( const char *msg, ...)
+{
+  char buf[512];
+  va_list ap;
+  va_start(ap, msg);
+  vsnprintf( buf, 511, msg, ap);
+  DBG(3, buf);
+  va_end(ap);
 }
 

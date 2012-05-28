@@ -206,3 +206,13 @@ int main(int argc, char*argv[])
   return 0;
 }
 
+int fs4000_scsi_log( const char *msg, ...)
+{
+  char buf[512];
+  va_list ap;
+  va_start(ap, msg);
+  vsnprintf( buf, 511, msg, ap);
+  DBG(3, buf);
+  va_end(ap);
+}
+

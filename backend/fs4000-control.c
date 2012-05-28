@@ -69,6 +69,7 @@
 #include "../include/sane/sanei_scsi.h"
 #include "../include/sane/sanei_backend.h"
 #include "../include/sane/sanei_config.h"
+#include "../include/lassert.h"
 
 #define FRAME_R2L 0
 
@@ -827,13 +828,33 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
   return 0;
 }
 
-int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp)
+int fs4k_GetLastFrameInfo( struct scanner *s, SANE_Int* lines, SANE_Int* lineBytes, SANE_Int* linePixels, SANE_Int* depth)
+{
+  if (!s->rBI.pBuf) return -1;
+  if (lines) *lines = s->rBI.dwLines;
+  if (lineBytes) *lineBytes = s->rBI.dwLineBytes;
+  if (linePixels) *linePixels = s->rBI.dwLineBytes / 3; /* HACK FIXME */
+  if (depth) *depth = 8; /* depth per pixel */
+  return 0;
+}
+
+
+/**
+ * @return 0 on success. On return, s->rBI contains scanned image.
+ */
+int fs4k_Scan(struct scanner *s, int iFrame, int left, int top, int width, int height, BOOL bAutoExp)
 {
   /* These magic numbers retained from Fs4000.cpp */
   int             iNegOff [6] = { 600, 1080, 1558, 2038, 2516, 2996};
   int             iPosOff [4] = { 552, 1330, 2110, 2883};
   int             iOffset;
   int             iSetFrame;
+
+  if (left < 0 || top < 0 || width < 1 || height < 1 || 
+      left + width > 4000 || top + height > 5904) {
+    assert(0);
+    return -1;
+  }
 
   fs4k_NewsTask(s, "Scan frame %d", iFrame + 1);
   
@@ -890,24 +911,38 @@ int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp)
   fs4k_SetScanModeEx (s, s->iSpeed, fs4k_U24 (s), -1);
   fs4000_set_window(4000,                         /*  UINT2 x_res, */
                     4000,                         /*  UINT2 y_res, */
-                    0,                            /*  UINT4 x_upper_left, */
-                    0,                            /*  UINT4 y_upper_left, */
-                    4000,                         /*  UINT4 width, */
-                    5904,                           /*  UINT4 height, */ /* TODO was 5904, using 16 for test speed */
+                    left,                            /*  UINT4 x_upper_left, */
+                    top,                            /*  UINT4 y_upper_left, */
+                    width,                         /*  UINT4 width, */
+                    height,                           /*  UINT4 height, */ /* TODO was 5904, using 16 for test speed */
                     fs4k_WBPS (s));               /*  BYTE bits_per_pixel_code */
   if (fs4k_Halt (s)) return fs4k_release(s, -1);
 
   fs4k_NewsStep (s, "Reading");
   fs4000_scan ();
   
-  fs4k_ReadScan(s, 3, fs4k_WBPS (s), FALSE/*TRUE in Fs4000.cpp*/, 4000, "/tmp/fs4000.rgb"); 
+  /* fs4k_ReadScan(s, 3, fs4k_WBPS (s), FALSE, 4000, "/tmp/fs4000.rgb"); */
+  fs4k_ReadScan(s, 3, fs4k_WBPS (s), FALSE, 4000, NULL); 
   
   fs4k_NewsStep (s, "Done");
 
-  fs4k_FreeBuf (&s->rBI); /* For now ... */
+  /*fs4k_FreeBuf (&s->rBI); */ /* For now ... */
 
   return fs4k_release(s, 0);
 }
+
+DWORD fs4k_GetScanResult(struct scanner *s, BYTE** buf)
+{
+  if (buf) *buf = s->rBI.pBuf;
+
+  return s->rBI.dwBytesRead;
+}
+
+void fs4k_FreeResult(struct scanner *s)
+{
+  fs4k_FreeBuf (&s->rBI);
+}
+
 
 void fs4k_InitData(struct scanner *s)
 {

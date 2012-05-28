@@ -117,14 +117,18 @@ extern int fs4k_LampOff(struct scanner* s, int iOffSecs);
  */
 extern int fs4k_LampOn(struct scanner* s, int iOnSecs);
 
-
 /** Select 8, 14, or 16-bit input mode */
 extern int fs4k_SetInMode (struct scanner *s, int iNewMode);
 
-
 /** Execute scan of specified frame */
-extern int fs4k_Scan(struct scanner *s, int iFrame, BOOL bAutoExp);
+extern int fs4k_Scan(struct scanner *s, int iFrame, int left, int top, int width, int height, BOOL bAutoExp);
 
+/** Get size and pointer to buffer from last successful fs4k_Scan() */
+extern DWORD fs4k_GetScanResult(struct scanner *s, BYTE** buf);
+
+extern void fs4k_FreeResult(struct scanner *s);
+
+extern int fs4k_GetLastFrameInfo( struct scanner *s, SANE_Int* lines, SANE_Int* lineBytes, SANE_Int* linePixels, SANE_Int* depth);
 
 #endif
 

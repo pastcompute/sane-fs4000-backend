@@ -37,6 +37,10 @@
 #include "fs4000-wnaspi32.h"
 /* #include "scsi_via_aspi.h" */
 
+/* Hack for SANE use */
+extern int fs4000_scsi_log( const char *msg, ...);
+#define printf fs4000_scsi_log
+
 int fs4000_debug = 1;
 
 /*  -------------------------------------------------
