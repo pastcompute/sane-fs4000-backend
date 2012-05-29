@@ -64,6 +64,15 @@
 
 #include "fs4000-scsidefs.h"
 
+/* debug levels - set using SANE_DEBUG_fs4000 env var 
+   These apply to DBG() calls. */
+#define D_WARNING 1
+#define D_INFO    2
+#define D_VERBOSE 3
+#define D_TRACE   4
+#define D_EXTRATRACE   5
+
+
 #ifdef __GNUC__
 #define UNUSEDARG __attribute__ ((unused))
 #else

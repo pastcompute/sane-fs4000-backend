@@ -57,6 +57,10 @@
 #define MAX_FRAME_NEGATIVE_MOUNT 5  /* index E 0..5 */
 #define MAX_FRAME_SLIDE_MOUNT 3
 
+#define FILM_HOLDER_NONE_OR_EMPTY 0
+#define FILM_HOLDER_NEG 1
+#define FILM_HOLDER_POS 2
+
 struct scanner;
 
 extern int fs4k_GetLastError(const struct scanner* s); 

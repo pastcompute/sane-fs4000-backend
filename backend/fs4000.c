@@ -95,13 +95,6 @@
 #define FS4000_CONFIG_FILE "fs4000.conf"
 
 
-/* debug levels - set using SANE_DEBUG_fs4000 env var 
-   These apply to DBG() calls. */
-#define D_WARNING 1
-#define D_INFO    2
-#define D_VERBOSE 3
-#define D_TRACE   4
-
 /** FS4000 USB Vendor ID */
 #define FS4000_USB_VENDOR 0x04a9
 /** FS4000 USB Product ID */
@@ -113,6 +106,8 @@
 enum FS4000_OPTION {
   OPT_FIRST = 0,  /** Always 0 - always the first, required by SANE */
   OPT_PRODUCT,    /** For diagnostics, returns the product string from device */
+  OPT_SLIDE_POSITION,
+  OPT_NEG_POSITION,
   OPT_NUM         /** MUST BE LAST, is the number of optoin array elements */
 };
 
@@ -131,6 +126,8 @@ typedef struct fs4000_dev {
   SANE_Int readBytesToGo;    /** Amount of data still to be returned from sane_read() */
   SANE_Byte* frameBuffer;
   SANE_Bool cancelled;
+  SANE_Int holder_mode;     
+    /* Value depends on whether --iframe-neg or --iframe-slide set by user - one onf FILM_HOLDER_NEG or FILM_HOLDER_POS */
   
   /** 
    * Array of option descriptions. Although this will be the same for all
@@ -143,16 +140,32 @@ typedef struct fs4000_dev {
   Option_Value val[OPT_NUM];
 } fs4000_dev_t;
 
+/* Option types (was hard to find meaning in doco:)
+   SANE_CAP_ADVANCED Suitable for advanced users,
+   SANE_CAP_HARD_SELECT Retrieved by operating on scanner
+   SANE_CAP_SOFT_DETECT Can be calculated in software; often in conjunction with SANE_CAP_HARD_SELECT
+   SANE_CAP_SOFT_SELECT Can be set
+   SANE_CAP_INACTIVE The option is not currently active, usually another option should be selected first
+   SANE_CAP_EMULATED The option will be emulated by the backend, as the device does not directly support this option
+   SANE_CAP_AUTOMATIC
+   
+   SANE_CONSTRAINT_NONE
+   SANE_CONSTRAINT_RANGE Value has to be with in a certain range (Fixed or Int)
+   SANE_CONSTRAINT_STRING_LIST Value can be one from a list of strings
+   SANE_CONSTRAINT_WORD_LIST Value can be one from a list of integers
+   */
+   
+
 static SANE_Option_Descriptor g_optFirst = {
-    SANE_NAME_NUM_OPTIONS,
-    SANE_TITLE_NUM_OPTIONS,
-    SANE_DESC_NUM_OPTIONS,
-    SANE_TYPE_INT,
-    SANE_UNIT_NONE,
-    sizeof (SANE_Word),
-    SANE_CAP_SOFT_DETECT,
-    SANE_CONSTRAINT_NONE,
-    {NULL}
+  SANE_NAME_NUM_OPTIONS,
+  SANE_TITLE_NUM_OPTIONS,
+  SANE_DESC_NUM_OPTIONS,
+  SANE_TYPE_INT,
+  SANE_UNIT_NONE,
+  sizeof (SANE_Word),
+  SANE_CAP_SOFT_DETECT,
+  SANE_CONSTRAINT_NONE,
+  {NULL}
 };
 
 static SANE_Option_Descriptor g_optProduct = {
@@ -161,12 +174,47 @@ static SANE_Option_Descriptor g_optProduct = {
   SANE_I18N ("Product string detected from scanner."),
   SANE_TYPE_STRING,
   SANE_UNIT_NONE,
-  1, /* Update this in the copy, to the length... */
-  SANE_CAP_SOFT_DETECT | SANE_CAP_SOFT_SELECT,
+  0, /* Update this in the copy, to the length of the string... */
+  SANE_CAP_SOFT_DETECT | SANE_CAP_HARD_SELECT,
   SANE_CONSTRAINT_NONE,
   {NULL}
 };
   
+SANE_Range g_slideFrameRange = { 1, MAX_FRAME_SLIDE_MOUNT+1, 1 };
+SANE_Range g_negFrameRange = { 1, MAX_FRAME_NEGATIVE_MOUNT+1, 1 };
+  
+  /* There is probably a better wat do to this, using a single --frame-pos arg ... 
+     but this gets things working */
+  
+  /* These should be marked mutually exclusive somehow */
+  
+static SANE_Option_Descriptor g_optSlideFramePosition = {
+  "iframe-slide",
+  SANE_I18N ("Frame to scan assuming slide holder inserted"),
+  SANE_I18N ("Frame to scan, 1..4 for slides"),
+  SANE_TYPE_INT,
+  SANE_UNIT_NONE,
+  sizeof(SANE_Word),
+  /* Validity is checked by examining to holder type, auto --> pos 1 */
+  SANE_CAP_SOFT_SELECT | SANE_CAP_AUTOMATIC ,
+  SANE_CONSTRAINT_RANGE,
+  { (void*)& g_slideFrameRange }
+};
+  
+static SANE_Option_Descriptor g_optNegFramePosition = {
+  "iframe-neg",
+  SANE_I18N ("Frame to scan assuming negative holder inserted"),
+  SANE_I18N ("Frame to scan, 1..6 for negatives"),
+  SANE_TYPE_INT,
+  SANE_UNIT_NONE,
+  sizeof(SANE_Word),
+  /* Validity is checked by examining to holder type */
+  SANE_CAP_SOFT_SELECT | SANE_CAP_AUTOMATIC ,
+  SANE_CONSTRAINT_RANGE,
+  { (void*)& g_negFrameRange }
+};
+
+
 /** 
  * Head of the list of attached devices
  */
@@ -245,6 +293,7 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
   assert( dn >= 0);
   g_saneFs4000UsbDn = dn;
 
+  memset(&rLI, 0, sizeof(rLI));
   if ( (er=fs4000_inquiry( &rLI))) {
     DBG (D_WARNING, "fs4000_inquiry() of '%s' failed.\n", devname);
     g_saneFs4000UsbDn = -1;
@@ -252,8 +301,10 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
     return SANE_STATUS_IO_ERROR;
   }
   
-  DBG (D_INFO, "INQ vendor=%8s product=%16s release=%4s\n", 
-                rLI.vendor_id, rLI.product_id, rLI.rev_level);
+  DBG (D_INFO, "INQ vendor=%*s product=%*s release=%*s\n", 
+                (int)sizeof(rLI.vendor_id), rLI.vendor_id, 
+                (int)sizeof(rLI.product_id), rLI.product_id,
+                (int)sizeof(rLI.rev_level), rLI.rev_level);
 
   if (strncmp( "CANON ", (char*)rLI.vendor_id, 6) || 
       strncmp( "IX-40015G ", (char*)rLI.product_id, 10))
@@ -283,6 +334,7 @@ static SANE_Status fs4000_usb_sane_attach(SANE_String_Const devname)
   dev->state = -1;
   dev->frameBuffer = NULL;
   dev->frameSizeBytes = 0;
+  dev->holder_mode = FILM_HOLDER_NONE_OR_EMPTY; /* nothing set yet */
   
   if (DBG_LEVEL > 1)
     walk_fs4000_dev();
@@ -430,7 +482,6 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
 {
   struct scanner *s;
   fs4000_dev_t* dev;
-  int i;
 
   DBG (D_VERBOSE, "sane_open '%s'\n", devicename);
 
@@ -486,6 +537,12 @@ sane_open (SANE_String_Const devicename, SANE_Handle * handle)
   dev->opts[OPT_PRODUCT].size = strlen( dev->sane.model)+1;
   dev->val[OPT_PRODUCT].s = strdup(dev->sane.model);
   
+  dev->opts[OPT_SLIDE_POSITION] = g_optSlideFramePosition;
+  dev->val[OPT_SLIDE_POSITION].w = 1; /* if unspecified use the first (outermost) position */
+
+  dev->opts[OPT_NEG_POSITION] = g_optNegFramePosition;
+  dev->val[OPT_NEG_POSITION].w = 1; /* if unspecified use the first (outermost) position */
+
   fs4k_InitData(s);
   fs4k_SetFeedbackFunction( s, fs4000_sane_feedback);
   fs4k_SetAbortFunction( s, fs4000_sane_check_abort);
@@ -555,6 +612,8 @@ sane_control_option (SANE_Handle handle, SANE_Int option,
   struct scanner *s = (struct scanner *)handle;
   fs4000_dev_t* dev = find_fs4000_dev(s);
 
+  DBG( D_VERBOSE, "sane_control_option %d{%s}\n", option, dev->opts[option].name);
+
   switch (option) {
   case OPT_FIRST:
     if (action != SANE_ACTION_GET_VALUE) return SANE_STATUS_UNSUPPORTED;
@@ -564,8 +623,39 @@ sane_control_option (SANE_Handle handle, SANE_Int option,
     if (action != SANE_ACTION_GET_VALUE) return SANE_STATUS_UNSUPPORTED;
     strcpy (val, dev->val[option].s);
     break;
+
+  /* TODO: Somehow integrate the ScanIMage batch op to do a whole slide holder */
+    
+  case OPT_NEG_POSITION:
+    if (action == SANE_ACTION_GET_VALUE) {
+      *(SANE_Word*)val = dev->val[option].w;
+      break;
+    }
+    if (dev->holder_mode == FILM_HOLDER_NONE_OR_EMPTY) {
+      DBG(1, "Setting Position %u for NEGATIVE holder\n", *(SANE_Word*)val);
+      dev->holder_mode = FILM_HOLDER_NEG;
+      dev->val[option].w = *(SANE_Word*)val;
+      break;
+    }
+    DBG(1, "Already selected a holder mode frame position\n");
+    return SANE_STATUS_UNSUPPORTED;
+        
+  case OPT_SLIDE_POSITION:
+    if (action == SANE_ACTION_GET_VALUE) {
+      *(SANE_Word*)val = dev->val[option].w;
+      break;
+    }
+    if (dev->holder_mode == FILM_HOLDER_NONE_OR_EMPTY) {
+      DBG(1, "Setting Position %u for SLIDE holder\n", *(SANE_Word*)val);
+      dev->holder_mode = FILM_HOLDER_POS;
+      dev->val[option].w = *(SANE_Word*)val;
+      break;
+    }
+    DBG(1, "Already set a holder mode frame position\n");
+    return SANE_STATUS_UNSUPPORTED;
+
   default:    
-    return SANE_STATUS_INVAL;
+    return SANE_STATUS_UNSUPPORTED;
   }
   return SANE_STATUS_GOOD;
 }
@@ -576,18 +666,39 @@ sane_get_parameters (SANE_Handle handle, SANE_Parameters * params)
 {
   struct scanner *s = (struct scanner *)handle;
   fs4000_dev_t* dev = find_fs4000_dev(s);
+  DWORD checkBytes;
+  BYTE* checkBuffer;
+
+  DBG (D_VERBOSE, "sane_get_parameters '%s' state=%d cancelled=%d\n", fs4k_devname(s), dev->state, dev->cancelled);
 
   /* Currently we assume this is only called after scan_start is called... */
   params->format = SANE_FRAME_RGB;
   params->last_frame = SANE_TRUE;
   
-  if (fs4k_GetLastFrameInfo( s, &params->bytes_per_line,
+  if (fs4k_GetLastFrameInfo( s,
         &params->lines,
+        &params->bytes_per_line,
         &params->pixels_per_line,
         &params->depth)) {
     return SANE_STATUS_INVAL;
   }
+
+  checkBytes = fs4k_GetScanResult(s, &checkBuffer);
   
+  /* should be same as that stored in dev ... */
+  if (!(checkBytes==dev->frameSizeBytes && checkBuffer == dev->frameBuffer)) {
+    /* Should never happen! */
+    DBG (D_WARNING, "sane_get_parameters  buffer size mismatch! expect %p:%u got %p:%u\n", 
+        dev->frameBuffer, dev->frameSizeBytes, checkBuffer, checkBytes);
+    return SANE_STATUS_INVAL;
+  }
+
+  DBG (D_INFO, "sane_get_parameters: "
+        "linebytes=%u lines=%u pixels/line=%u depth=%u expected_buf=%u\n", 
+        params->bytes_per_line, params->lines, params->pixels_per_line, 
+        params->depth, checkBytes
+        );
+
   
   return SANE_STATUS_GOOD;
 }
@@ -598,8 +709,9 @@ sane_start (SANE_Handle handle)
 {
   struct scanner *s = (struct scanner *)handle;
   fs4000_dev_t* dev = find_fs4000_dev(s);
-  int frameIndex;
+  SANE_Word frameIndex, frameMax;
   FS4000_GET_FILM_STATUS_DATA_IN_28 fs;
+  SANE_Word left=0,top=0,width=4000,height=5904;
   
   /* Initial naive approach: do all the scanning here.
    * Then return the buffer through read.
@@ -618,16 +730,36 @@ sane_start (SANE_Handle handle)
     DBG( D_WARNING, "Unable to retrieve film status\n");
     return SANE_STATUS_IO_ERROR;
   }
-  if (fs.film_holder_type == 0) {
+  if (fs.film_holder_type == FILM_HOLDER_NONE_OR_EMPTY) {
     /* holder is out... */
+    DBG( D_WARNING, "Holder is ejected...\n");
+    return SANE_STATUS_NO_DOCS;
+  }
+
+  if (dev->holder_mode != fs.film_holder_type) {
+    DBG(1, "Incorrect holder type detected for frame selection (select=%u detected=%u)\n", dev->holder_mode, fs.film_holder_type);
     return SANE_STATUS_NO_DOCS;
   }
 
 
-  /* TODO: read frame index from options */
-  frameIndex = 5;
+  switch (fs.film_holder_type) {
+  case FILM_HOLDER_NEG: 
+    frameMax = MAX_FRAME_NEGATIVE_MOUNT;
+    frameIndex = dev->val[OPT_NEG_POSITION].w - 1;
+    break;
+  case FILM_HOLDER_POS: 
+    frameMax = MAX_FRAME_SLIDE_MOUNT;
+    frameIndex = dev->val[OPT_SLIDE_POSITION].w - 1;
+    break;
+  }
+  
+  if (frameIndex > frameMax) {
+    DBG( 1, "Bad frame index was specified. %u > %u\n", frameIndex, frameMax);
+  }
+  
+  DBG (D_INFO, "SCANNING Frame Position %u of %u\n", frameIndex+1, frameMax+1);
 
-  fs4k_Scan( s, frameIndex, 500, 500, 500, 500, SANE_FALSE);
+  fs4k_Scan( s, frameIndex, left, top, width, height, SANE_FALSE);
   
   if (fs4k_GetLastError(s)) {
     fs4k_FreeResult(s);
@@ -701,6 +833,8 @@ sane_cancel (SANE_Handle handle)
   struct scanner *s = (struct scanner *)handle;
   fs4000_dev_t* dev = find_fs4000_dev(s);
 
+  DBG (D_VERBOSE, "sane_cancel '%s' state=%d remain=%u\n", fs4k_devname(s), dev->state, dev->readBytesToGo);
+
   dev->cancelled = SANE_TRUE;
 
   fs4k_FreeResult(s);
@@ -733,10 +867,12 @@ sane_get_select_fd (SANE_Handle UNUSEDARG handle, SANE_Int UNUSEDARG * fd)
 int fs4000_scsi_log( const char *msg, ...)
 {
   char buf[512];
+  int r;
   va_list ap;
   va_start(ap, msg);
-  vsnprintf( buf, 511, msg, ap);
+  r = vsnprintf( buf, 511, msg, ap);
   DBG(3, buf);
   va_end(ap);
+  return r;
 }
 

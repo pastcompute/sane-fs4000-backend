@@ -75,7 +75,8 @@
 
 #define MAX_MSG 256
 
-#define DEBUG(s, m...) printf( m)
+/* reminder - we cant use printf because the image goes to stdout from sane ... */
+#define DEBUG(s, m...) DBG( 3, m)
 
 #define LONGLONG uint64_t
 
@@ -109,6 +110,7 @@ static void fs4k_FreeBuf(FS4K_SCAN_BUFFER_INFO *pBI)
 {
   if (pBI->pBuf)
     free (pBI->pBuf);
+  pBI->pBuf = NULL;
   return;
 }
 
@@ -527,7 +529,7 @@ static int fs4k_ReadScanFromScanner(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pB
 
   pcBuf = (BYTE*)pBI->pBuf;
 
-  DEBUG(s, "Lines %u LineBytes %u BlockBytes %lu Total %lu\n", pBI->dwLines, pBI->dwLineBytes, bytesNextBlock, bufSize);
+  DEBUG(s, "fs4k_ReadScanFromScanner() Lines %u LineBytes %u BlockBytes %lu Total %lu\n", pBI->dwLines, pBI->dwLineBytes, bytesNextBlock, bufSize);
   
   while (bytesRead < bufSize)
   {
@@ -541,16 +543,47 @@ static int fs4k_ReadScanFromScanner(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pB
 
     readStatus = PENDING;
     if (fs4000_read (bytesNextBlock, (PIXEL*)pcBuf)) {
-      fs4k_Fatal( s, "Failed to read next %lu bytes of scan data.", bytesNextBlock);
+      fs4k_Fatal( s, "fs4k_ReadScanFromScanner() Failed to read next %lu bytes of scan data.", bytesNextBlock);
       readStatus = ABORTED; /* AMM Q. can be improved? - why not just break out? */
     } else {
       readStatus = WAITING;
       pcBuf += bytesNextBlock;
       bytesRead += bytesNextBlock;       /* update read count */
-      DEBUG(s, "Read %lu/%lu bytes from scanner. togo=%lu next=%lu\n", bytesRead, bufSize, bytesToGo, bytesNextBlock);
+      DEBUG(s, "fs4k_ReadScanFromScanner() Read %lu/%lu bytes from scanner. togo=%lu next=%lu\n", bytesRead, bufSize, bytesToGo, bytesNextBlock);
     }
   }
   pBI->dwBytesRead = bytesRead;
+  return 0;
+}
+
+/** This code was in fs4k_Deinterlace(), but we need to work out what the
+    lines was reduced to to pass it into sane_get_parameters() */
+static int fs4k_CalcDeinterlaceShift(struct scanner *s)
+{
+  int iShift = 0;
+/*//if (s->rBI.wLPI ==  160) iShift = 0;*/
+  if (s->rBI.wLPI ==  500) iShift = 1;
+  if (s->rBI.wLPI == 1000) iShift = 2;
+  if (s->rBI.wLPI == 2000) iShift = 4;
+  if (s->rBI.wLPI == 4000) iShift = 8;
+  return iShift;
+}
+
+
+/** Get numbers for use in sane_get_parameters() */
+int fs4k_GetLastFrameInfo( struct scanner *s, SANE_Int* lines, SANE_Int* lineBytes, SANE_Int* linePixels, SANE_Int* depth)
+{
+  int iShift = 0;
+  if (!s->rBI.pBuf) return -1;
+  
+  /* At this stage, lines will have been reduced by iShift.
+     However, the buffer required is (dwLines + iShift) x linePixels x depth/8 bytes...
+   */
+  iShift = fs4k_CalcDeinterlaceShift(s);
+  if (lines) *lines = s->rBI.dwLines;  
+  if (lineBytes) *lineBytes = s->rBI.dwLineBytes;
+  if (linePixels) *linePixels = s->rBI.dwLineBytes / 3; /* HACK FIXME */
+  if (depth) *depth = 8; /* depth per pixel */
   return 0;
 }
 
@@ -586,11 +619,7 @@ static void fs4k_Deinterlace(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pBI, BOOL
 */
   iLineEnts = s->rBI.dwLineBytes / ((pBI->byBitsPerSample + 7) >> 3);
   iShift = iShift2 = 0;
-/*//if (s->rBI.wLPI ==  160) iShift = 0;*/
-  if (s->rBI.wLPI ==  500) iShift = 1;
-  if (s->rBI.wLPI == 1000) iShift = 2;
-  if (s->rBI.wLPI == 2000) iShift = 4;
-  if (s->rBI.wLPI == 4000) iShift = 8;
+  iShift = fs4k_CalcDeinterlaceShift(s);
 #ifdef AMM_TODO_DEAL_WITH_DUMPFILE
   if (hFile)                                    /* no shift if raw output */
     iShift = 0;
@@ -604,7 +633,10 @@ static void fs4k_Deinterlace(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pBI, BOOL
     iOff [0] -= (iShift2 * iLineEnts);
   else                                          /* R2L */
     iOff [2] -= (iShift2 * iLineEnts);
-  s->rBI.dwLines -= iShift2;
+
+  /** FIXME - this can interfere with sane_get_parameters? */
+  DEBUG( s, "Fs4000.cpp did adjust dwLines %d -> %d\n", s->rBI.dwLines, s->rBI.dwLines - iShift2);
+  /* Leave out to avoid breaking SANE for now... */ /*s->rBI.dwLines -= iShift2;*/
 
 #if 0
   wsprintf (msg, "LineEnts = %d, R off = %d, G off = %d, B off = %d\r\n",
@@ -636,7 +668,8 @@ static void fs4k_Deinterlace(struct scanner* s, FS4K_SCAN_BUFFER_INFO *pBI, BOOL
     if (dwToDo > (pBI->dwBytesRead - dwBytesDone)) 
       dwToDo = pBI->dwBytesRead - dwBytesDone;
 
-    DEBUG( s, "[Deinterlace] Input from byte %9u to %9u; Output Position %u\n", dwBytesDone, dwBytesDone+dwToDo-1, dwSamples);
+    DEBUG( s, "[Deinterlace] Input from byte %9u to %9u; Output Position %u\n",
+              dwBytesDone, dwBytesDone+dwToDo-1, dwSamples);
 
     dwBytesDone += dwToDo;                      /* premature update */
     if (pBI->byBitsPerSample > 8)
@@ -810,7 +843,7 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
    */
   
   fs4k_ReadScanFromScanner( s, &s->rBI);
-  fs4k_Deinterlace(s, &s->rBI, bCorrectSamples);
+  fs4k_Deinterlace(s, &s->rBI, bCorrectSamples); /* This modified dwLines in Fs4000.cpp */
 
   if (dumpFileName) {
     FILE *f = fopen( dumpFileName, "wb");
@@ -827,17 +860,6 @@ static int fs4k_ReadScan(struct scanner *s, BYTE bySamplesPerPixel,
   fs4k_PopDebug(s);
   return 0;
 }
-
-int fs4k_GetLastFrameInfo( struct scanner *s, SANE_Int* lines, SANE_Int* lineBytes, SANE_Int* linePixels, SANE_Int* depth)
-{
-  if (!s->rBI.pBuf) return -1;
-  if (lines) *lines = s->rBI.dwLines;
-  if (lineBytes) *lineBytes = s->rBI.dwLineBytes;
-  if (linePixels) *linePixels = s->rBI.dwLineBytes / 3; /* HACK FIXME */
-  if (depth) *depth = 8; /* depth per pixel */
-  return 0;
-}
-
 
 /**
  * @return 0 on success. On return, s->rBI contains scanned image.

@@ -53,6 +53,7 @@
 #include "../include/sane/sanei_usb.h"
 #include "../include/sane/sanei_debug.h"
 
+#include "fs4000.h"
 #include "fs4000-usb.h"
 
 /* We currently only support one Scanner. To fix this would require
@@ -75,7 +76,7 @@ fs4000_usb_do_request (SANE_Int usbDn, SANE_Int value, SANE_Bool bInput,
   /* loaded by driver according to ddk */
   byRequest = (bufLen < 2) ? 0x0C : 0x04;     /* is this significant ?*/
 
-  DBG (4, "usb_control_msg: dn=%d %.8x %.8x %.8x\n", usbDn, byRequestType, byRequest, value);
+  DBG (D_TRACE, "usb_control_msg: dn=%d %.8x %.8x %.8x\n", usbDn, byRequestType, byRequest, value);
 
   return sanei_usb_control_msg (
             usbDn, byRequestType, byRequest, value, 0, bufLen, pBuf);
@@ -97,7 +98,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
   BYTE            bySensPDB [14];         /* from 0300 request*/
   int er;
 
-  DBG (3, "fs4000_usb_scsi_exec: %u %.8x {%d}\n", cdb_length, mode_and_dir, pdb_len);
+  DBG (D_TRACE, "fs4000_usb_scsi_exec: %u %.8x {%d}\n", cdb_length, mode_and_dir, pdb_len);
   if (!pdb_len)                         /* if no data, use dummy output*/
   {
     mode_and_dir &= ~SRB_DIR_IN;
@@ -137,11 +138,11 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
 
   er=fs4000_usb_do_request (g_saneFs4000UsbDn, dwValue, bInput, pdb, pdb_len);
   if (er==SANE_STATUS_IO_ERROR) {
-    DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request IO Error");
+    DBG (D_WARNING, "fs4000_usb_scsi_exec: fs4000_usb_do_request IO Error");
     return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
   }
   if (er==SANE_STATUS_UNSUPPORTED) {
-    DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request Unsupported");
+    DBG (D_WARNING, "fs4000_usb_scsi_exec: fs4000_usb_do_request Unsupported");
     return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
   }
 
@@ -150,19 +151,19 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
     dwBytes = save_pdb_len;
     er = sanei_usb_read_bulk( g_saneFs4000UsbDn, save_pdb, &dwBytes);
     if (er==SANE_STATUS_IO_ERROR) {
-      DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk IO Error");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: usb_read_bulk IO Error");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_EOF) {
-      DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk EOF");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: usb_read_bulk EOF");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_INVAL) {
-      DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk INVAL");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: usb_read_bulk INVAL");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (dwBytes != save_pdb_len) {
-      DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk short read");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: usb_read_bulk short read");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
   }
@@ -170,11 +171,11 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
   if (fs4000_usb_do_request (g_saneFs4000UsbDn, dwValueC5, SANE_TRUE, byStatPDB, 4))  /* get status*/
   {
     if (er==SANE_STATUS_IO_ERROR) {
-      DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status IO Error");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status IO Error");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_UNSUPPORTED) {
-      DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status Unsupported");
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status Unsupported");
       return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
@@ -182,7 +183,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
 
   if (byStatPDB [0] != *pbyCmd) {
     if ((byStatPDB [0] != 0) || ((*pbyCmd != 0x16) && (*pbyCmd != 0x17))) {
-      DBG (1, "fs4000_usb_scsi_exec: cmd mismatch %02X %02X\n", *pbyCmd, byStatPDB [0]);
+      DBG (D_WARNING, "fs4000_usb_scsi_exec: cmd mismatch %02X %02X\n", *pbyCmd, byStatPDB [0]);
     }
   }
 
@@ -194,7 +195,7 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
     er = fs4000_usb_do_request (g_saneFs4000UsbDn, dwValue03, SANE_TRUE, bySensPDB, 14);   /* get sense*/
     for (x = 0; x < maxx; x++)
       snprintf (buf+x*3, (maxx-x)*3, " %02X", bySensPDB [x]);
-    DBG (1, "fs4000_usb_scsi_exec: sense error: %s", buf);
+    DBG (D_WARNING, "fs4000_usb_scsi_exec: sense error: %s", buf);
   }
   return 0;
 }          
