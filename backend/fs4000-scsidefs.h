@@ -1,5 +1,6 @@
 #ifndef SANE_BACKEND_FS4000_SCSIDEFS_H__
 #define SANE_BACKEND_FS4000_SCSIDEFS_H__
+
 /****************************************************************************
  *
  * Name:            SCSIDEFS.H

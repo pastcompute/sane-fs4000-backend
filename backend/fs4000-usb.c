@@ -138,11 +138,11 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
   er=fs4000_usb_do_request (g_saneUsbDn, dwValue, bInput, pdb, pdb_len);
   if (er==SANE_STATUS_IO_ERROR) {
     DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request IO Error");
-    return -1;
+    return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
   }
   if (er==SANE_STATUS_UNSUPPORTED) {
     DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request Unsupported");
-    return -1;
+    return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
   }
 
   if (*pbyCmd == 0x28)                          /* if read, get bulk data*/
@@ -151,19 +151,19 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
     er = sanei_usb_read_bulk( g_saneUsbDn, save_pdb, &dwBytes);
     if (er==SANE_STATUS_IO_ERROR) {
       DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk IO Error");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_EOF) {
       DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk EOF");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_INVAL) {
       DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk INVAL");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (dwBytes != save_pdb_len) {
       DBG (1, "fs4000_usb_scsi_exec: usb_read_bulk short read");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
   }
 
@@ -171,13 +171,13 @@ fs4000_usb_scsi_exec (void *cdb, unsigned int   cdb_length,
   {
     if (er==SANE_STATUS_IO_ERROR) {
       DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status IO Error");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
     if (er==SANE_STATUS_UNSUPPORTED) {
       DBG (1, "fs4000_usb_scsi_exec: fs4000_usb_do_request get status Unsupported");
-      return -1;
+      return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
     }
-    return -1;
+    return -1; /* TODO - return the SANE error code instead, check fs4000-scsi.h passes it through */
   }
 
   if (byStatPDB [0] != *pbyCmd) {

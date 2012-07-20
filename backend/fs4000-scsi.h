@@ -1,5 +1,5 @@
-#ifndef _FS4000_SCSI_H_
-#define _FS4000_SCSI_H_
+#ifndef FS4000_SCSI_H__
+#define FS4000_SCSI_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -9,26 +9,16 @@ extern "C" {
    These need to map to SCSI CDBs exactly */
 #pragma pack(push, 1)
 
+#include "../include/_stdint.h" /* AMM added for SANE integration */
 /* data types used by the FS4000.
    IMPORTANT NOTE: all multi-byte values used by the FS4000 are big-endian
    (with one major exception - see READ_CDB below). Therefore, note how all
    routines in the .c file swap endians before setting/reading values.
 */
-#ifndef BYTE
-typedef unsigned char BYTE;
-#endif
-#ifndef UINT2
-typedef short unsigned int UINT2;
-#endif
-#ifndef UINT4
-typedef unsigned int UINT4;
-#endif
-#ifndef PIXEL
+typedef uint16_t UINT2; /* AMM updated for SANE integration */
+typedef uint32_t UINT4; /* AMM updated for SANE integration */
 /* this is truly a bad name since a pixel is really made up of three of these. To be fixed. */
-typedef unsigned short int PIXEL;
-#endif
-
-/*#include <windows.h>*/
+typedef uint16_t PIXEL; /* AMM updated for SANE integration */
 
 /* if this is set to 0, no debug output to stdout. If <> 0, debug output.
    this can be turned off and on on-the-fly. */

@@ -1,3 +1,6 @@
+#ifndef SANE_BACKEND_FS4000_WNASPI32_H__
+#define SANE_BACKEND_FS4000_WNASPI32_H__
+
 /******************************************************************************
 **
 **  Module Name:    wnaspi32.h
@@ -316,4 +319,6 @@ typedef void *LPSRB;
 #endif /*__cplusplus*/
 
 #endif /*__WNASPI32_H__*/
+
+#endif
 

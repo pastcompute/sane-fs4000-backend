@@ -59,7 +59,7 @@
  * uses a callback that allows either USB or SCSI as the transport.
  * 
  * Higher level control, i.e. use cases such as scanning, tuning and other
- * operations are provided in fs4000-cpp.c, this code is derived from the
+ * operations are provided in fs4000-control.c, this code is derived from the
  * Fs4000.cpp program developed by Steven Saunderson.
  */
 
