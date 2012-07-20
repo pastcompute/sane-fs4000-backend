@@ -1086,7 +1086,7 @@ libsane_xerox_mfp_la_LDFLAGS = $(DIST_SANELIBS_LDFLAGS)
 libsane_xerox_mfp_la_LIBADD = $(COMMON_LIBS) libxerox_mfp.la ../sanei/sanei_init_debug.lo ../sanei/sanei_constrain_value.lo ../sanei/sanei_config.lo  sane_strstatus.lo ../sanei/sanei_usb.lo ../sanei/sanei_tcp.lo $(MATH_LIB) $(SOCKET_LIBS) $(USB_LIBS) $(RESMGR_LIBS)
 EXTRA_DIST += xerox_mfp.conf.in
 
-libfs4000_la_SOURCES = fs4000-backend.c
+libfs4000_la_SOURCES = fs4000.c fs4000.h fs4000-usb.c fs4000-usb.h fs4000-scsi.c fs4000-scsi.h
 libfs4000_la_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
 
 nodist_libsane_fs4000_la_SOURCES = fs4000-s.c
