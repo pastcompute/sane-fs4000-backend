@@ -18,22 +18,17 @@
 #ifndef __WNASPI32_H__
 #define __WNASPI32_H__
 
-#include <stdint.h>
-#ifndef DWORD
-#define DWORD uint32_t
-#endif
-#ifndef WORD
-#define WORD uint16_t
-#endif
-#define FAR
-#define VOID void
-#define PBYTE uint8_t*
-#include <stdbool.h>
-#define BOOL bool
-
 /*
 ** Make sure structures are packed and undecorated.
 */
+
+#define FAR
+#define VOID void
+#define PBYTE BYTE*
+
+#ifdef __GNUC__
+#pragma pack(push,1)
+#endif
 
 #ifdef __BORLANDC__
 #pragma option -a1
@@ -299,30 +294,6 @@ ASPI32BUFF, *PASPI32BUFF, FAR *LPASPI32BUFF;
 
 typedef void *LPSRB;
 
-#if defined(__BORLANDC__)
-
-DWORD _import GetASPI32SupportInfo( void );
-DWORD _import SendASPI32Command( LPSRB );
-BOOL _import GetASPI32Buffer( PASPI32BUFF );
-BOOL _import FreeASPI32Buffer( PASPI32BUFF );
-BOOL _import TranslateASPI32Address( PDWORD, PDWORD );
-
-#elif defined(_MSC_VER)
-__declspec(dllimport) DWORD GetASPI32SupportInfo( void );
-__declspec(dllimport) DWORD SendASPI32Command( LPSRB );
-__declspec(dllimport) BOOL GetASPI32Buffer( PASPI32BUFF );
-__declspec(dllimport) BOOL FreeASPI32Buffer( PASPI32BUFF );
-__declspec(dllimport) BOOL TranslateASPI32Address( PDWORD, PDWORD );
-
-#else
-
-extern DWORD GetASPI32SupportInfo( void );
-extern DWORD GetASPI32Command( LPSRB );
-extern BOOL GetASPI32Buffer( PASPI32BUFF );
-extern BOOL FreeASPI32Buffer( PASPI32BUFF );
-extern BOOL TranslateASPI32Address( PDWORD, PDWORD );
-
-#endif
 
 /*
 ** Restore compiler default packing and close off the C declarations.
@@ -335,6 +306,10 @@ extern BOOL TranslateASPI32Address( PDWORD, PDWORD );
 #ifdef _MSC_VER
 #pragma pack()
 #endif /*_MSC_VER*/
+
+#ifdef __GNUC__
+#pragma pack(pop)
+#endif
 
 #ifdef __cplusplus
 }

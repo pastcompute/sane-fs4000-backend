@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "fs4000.h"
 #include "fs4000-scsi.h"
 #include "fs4000-wnaspi32.h"
 /* #include "scsi_via_aspi.h" */

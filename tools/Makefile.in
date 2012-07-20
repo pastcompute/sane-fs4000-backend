@@ -67,7 +67,8 @@ sane_find_scanner_OBJECTS = $(am_sane_find_scanner_OBJECTS)
 sane_find_scanner_DEPENDENCIES = ../sanei/libsanei.la ../lib/liblib.la
 am_sane_fs4000_test_OBJECTS =  \
 	sane_fs4000_test-sane-fs4000-test.$(OBJEXT) \
-	sane_fs4000_test-fs4000-scsi.$(OBJEXT)
+	sane_fs4000_test-fs4000-scsi.$(OBJEXT) \
+	sane_fs4000_test-fs4000-usb.$(OBJEXT)
 sane_fs4000_test_OBJECTS = $(am_sane_fs4000_test_OBJECTS)
 sane_fs4000_test_DEPENDENCIES = ../sanei/libsanei.la ../lib/liblib.la
 am_umax_pp_OBJECTS = umax_pp-umax_pp.$(OBJEXT) \
@@ -315,7 +316,7 @@ sane_find_scanner_LDADD = ../sanei/libsanei.la ../lib/liblib.la \
 
 gamma4scanimage_SOURCES = gamma4scanimage.c
 gamma4scanimage_LDADD = @MATH_LIB@
-sane_fs4000_test_SOURCES = sane-fs4000-test.c ../backend/fs4000-scsi.c
+sane_fs4000_test_SOURCES = sane-fs4000-test.c ../backend/fs4000-scsi.c ../backend/fs4000-usb.c
 sane_fs4000_test_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
 sane_fs4000_test_LDADD = ../sanei/libsanei.la ../lib/liblib.la -lusb
 umax_pp_SOURCES = umax_pp.c ../backend/umax_pp_low.c
@@ -477,6 +478,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane-desc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane-find-scanner.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane_fs4000_test-fs4000-scsi.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane_fs4000_test-fs4000-usb.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane_fs4000_test-sane-fs4000-test.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sane_strstatus.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/umax_pp-umax_pp.Po@am__quote@
@@ -544,6 +546,20 @@ sane_fs4000_test-fs4000-scsi.obj: ../backend/fs4000-scsi.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../backend/fs4000-scsi.c' object='sane_fs4000_test-fs4000-scsi.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(sane_fs4000_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o sane_fs4000_test-fs4000-scsi.obj `if test -f '../backend/fs4000-scsi.c'; then $(CYGPATH_W) '../backend/fs4000-scsi.c'; else $(CYGPATH_W) '$(srcdir)/../backend/fs4000-scsi.c'; fi`
+
+sane_fs4000_test-fs4000-usb.o: ../backend/fs4000-usb.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(sane_fs4000_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT sane_fs4000_test-fs4000-usb.o -MD -MP -MF $(DEPDIR)/sane_fs4000_test-fs4000-usb.Tpo -c -o sane_fs4000_test-fs4000-usb.o `test -f '../backend/fs4000-usb.c' || echo '$(srcdir)/'`../backend/fs4000-usb.c
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/sane_fs4000_test-fs4000-usb.Tpo $(DEPDIR)/sane_fs4000_test-fs4000-usb.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../backend/fs4000-usb.c' object='sane_fs4000_test-fs4000-usb.o' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(sane_fs4000_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o sane_fs4000_test-fs4000-usb.o `test -f '../backend/fs4000-usb.c' || echo '$(srcdir)/'`../backend/fs4000-usb.c
+
+sane_fs4000_test-fs4000-usb.obj: ../backend/fs4000-usb.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(sane_fs4000_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT sane_fs4000_test-fs4000-usb.obj -MD -MP -MF $(DEPDIR)/sane_fs4000_test-fs4000-usb.Tpo -c -o sane_fs4000_test-fs4000-usb.obj `if test -f '../backend/fs4000-usb.c'; then $(CYGPATH_W) '../backend/fs4000-usb.c'; else $(CYGPATH_W) '$(srcdir)/../backend/fs4000-usb.c'; fi`
+@am__fastdepCC_TRUE@	$(am__mv) $(DEPDIR)/sane_fs4000_test-fs4000-usb.Tpo $(DEPDIR)/sane_fs4000_test-fs4000-usb.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='../backend/fs4000-usb.c' object='sane_fs4000_test-fs4000-usb.obj' libtool=no @AMDEPBACKSLASH@
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(sane_fs4000_test_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o sane_fs4000_test-fs4000-usb.obj `if test -f '../backend/fs4000-usb.c'; then $(CYGPATH_W) '../backend/fs4000-usb.c'; else $(CYGPATH_W) '$(srcdir)/../backend/fs4000-usb.c'; fi`
 
 umax_pp-umax_pp.o: umax_pp.c
 @am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(umax_pp_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT umax_pp-umax_pp.o -MD -MP -MF $(DEPDIR)/umax_pp-umax_pp.Tpo -c -o umax_pp-umax_pp.o `test -f 'umax_pp.c' || echo '$(srcdir)/'`umax_pp.c
