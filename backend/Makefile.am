@@ -96,7 +96,8 @@ BACKEND_CONFS= abaton.conf agfafocus.conf apple.conf artec.conf \
 	       st400.conf stv680.conf tamarack.conf \
 	       teco1.conf teco2.conf teco3.conf test.conf \
 	       u12.conf umax1220u.conf umax.conf umax_pp.conf v4l.conf \
-	       xerox_mfp.conf dll.conf saned.conf
+	       xerox_mfp.conf dll.conf saned.conf \
+	       fs4000.conf
 becfg: $(BACKEND_CONFS)
 
 SUFFIXES = .conf.in .conf
@@ -191,7 +192,8 @@ be_convenience_libs = libabaton.la libagfafocus.la \
     libtamarack.la libtest.la libteco1.la \
     libteco2.la libteco3.la libu12.la libumax.la \
     libumax1220u.la libumax_pp.la libv4l.la \
-    libxerox_mfp.la
+    libxerox_mfp.la \
+    libfs4000.la
 
 # Each stand alone backend thats possible to be built should be listed
 # here.  There are the libraries that are installed under $(libdir)/sane.
@@ -225,7 +227,8 @@ be_dlopen_libs = libsane-abaton.la libsane-agfafocus.la \
     libsane-tamarack.la libsane-test.la libsane-teco1.la \
     libsane-teco2.la libsane-teco3.la libsane-u12.la libsane-umax.la \
     libsane-umax1220u.la libsane-umax_pp.la libsane-v4l.la \
-    libsane-xerox_mfp.la
+    libsane-xerox_mfp.la \
+    libsane-fs4000.la
 
 EXTRA_LTLIBRARIES = $(be_convenience_libs) $(be_dlopen_libs)
 
@@ -1083,6 +1086,15 @@ libsane_xerox_mfp_la_LDFLAGS = $(DIST_SANELIBS_LDFLAGS)
 libsane_xerox_mfp_la_LIBADD = $(COMMON_LIBS) libxerox_mfp.la ../sanei/sanei_init_debug.lo ../sanei/sanei_constrain_value.lo ../sanei/sanei_config.lo  sane_strstatus.lo ../sanei/sanei_usb.lo ../sanei/sanei_tcp.lo $(MATH_LIB) $(SOCKET_LIBS) $(USB_LIBS) $(RESMGR_LIBS)
 EXTRA_DIST += xerox_mfp.conf.in
 
+libfs4000_la_SOURCES = fs4000-backend.c
+libfs4000_la_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
+
+nodist_libsane_fs4000_la_SOURCES = fs4000-s.c
+libsane_fs4000_la_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=fs4000
+libsane_fs4000_la_LDFLAGS = $(DIST_SANELIBS_LDFLAGS)
+libsane_fs4000_la_LIBADD = $(COMMON_LIBS) libfs4000.la ../sanei/sanei_init_debug.lo ../sanei/sanei_constrain_value.lo ../sanei/sanei_config.lo  sane_strstatus.lo ../sanei/sanei_usb.lo $(MATH_LIB) $(USB_LIBS) $(RESMGR_LIBS)
+EXTRA_DIST += fs4000.conf.in
+
 libdll_preload_la_SOURCES =  dll.c
 libdll_preload_la_CPPFLAGS = $(AM_CPPFLAGS) -DBACKEND_NAME=dll -DENABLE_PRELOAD
 libdll_la_SOURCES =  dll.c
@@ -1124,3 +1136,5 @@ libsane_la_LIBADD = $(COMMON_LIBS) @PRELOADABLE_BACKENDS_ENABLED@ libdll_preload
 
 # WARNING: Automake is getting this wrong so have to do it ourselves.
 libsane_la_DEPENDENCIES = $(COMMON_LIBS) @PRELOADABLE_BACKENDS_ENABLED@ libdll_preload.la sane_strstatus.lo ../sanei/sanei_init_debug.lo ../sanei/sanei_constrain_value.lo ../sanei/sanei_config.lo ../sanei/sanei_config2.lo ../sanei/sanei_usb.lo ../sanei/sanei_scsi.lo ../sanei/sanei_pv8630.lo ../sanei/sanei_pp.lo ../sanei/sanei_thread.lo  ../sanei/sanei_lm983x.lo ../sanei/sanei_access.lo ../sanei/sanei_net.lo ../sanei/sanei_wire.lo ../sanei/sanei_codec_bin.lo ../sanei/sanei_pa4s2.lo ../sanei/sanei_ab306.lo ../sanei/sanei_pio.lo ../sanei/sanei_tcp.lo ../sanei/sanei_udp.lo ../sanei/sanei_magic.lo @SANEI_SANEI_JPEG_LO@
+
+
