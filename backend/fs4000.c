@@ -196,7 +196,7 @@ static SANE_Option_Descriptor g_optSlideFramePosition = {
   SANE_UNIT_NONE,
   sizeof(SANE_Word),
   /* Validity is checked by examining to holder type, auto --> pos 1 */
-  SANE_CAP_SOFT_SELECT | SANE_CAP_AUTOMATIC ,
+  SANE_CAP_SOFT_SELECT | SANE_CAP_SOFT_DETECT | SANE_CAP_AUTOMATIC ,
   SANE_CONSTRAINT_RANGE,
   { (void*)& g_slideFrameRange }
 };
@@ -209,7 +209,7 @@ static SANE_Option_Descriptor g_optNegFramePosition = {
   SANE_UNIT_NONE,
   sizeof(SANE_Word),
   /* Validity is checked by examining to holder type */
-  SANE_CAP_SOFT_SELECT | SANE_CAP_AUTOMATIC ,
+  SANE_CAP_SOFT_SELECT | SANE_CAP_SOFT_DETECT | SANE_CAP_AUTOMATIC ,
   SANE_CONSTRAINT_RANGE,
   { (void*)& g_negFrameRange }
 };
