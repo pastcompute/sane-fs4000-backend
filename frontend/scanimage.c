@@ -376,13 +376,13 @@ print_option (SANE_Device * device, int opt_num, const SANE_Option_Descriptor *o
 
   /* if both of these are set, option is invalid */
   if(opt->cap & SANE_CAP_SOFT_SELECT && opt->cap & SANE_CAP_HARD_SELECT){
-    fprintf (stderr, "%s: invalid option caps, SS+HS\n", prog_name);
+    fprintf (stderr, "%s: %s has invalid option caps, SS+HS\n", opt->name, prog_name);
     return;
   }
 
   /* invalid to select but not detect */
   if(opt->cap & SANE_CAP_SOFT_SELECT && !(opt->cap & SANE_CAP_SOFT_DETECT)){
-    fprintf (stderr, "%s: invalid option caps, SS!SD\n", prog_name);
+    fprintf (stderr, "%s: %s has invalid option caps, SS!SD\n", opt->name, prog_name);
     return;
   }
   /* standard allows this, though it makes little sense
